@@ -39,15 +39,12 @@ export default function TransactionItem({ transaction: tx }: Props) {
   const [showActions, setShowActions] = useState(false);
 
   const cat = getCategoryById(tx.categoryId);
-  const isCarryover = cat?.name === 'Остаток с прошлого месяца';
 
   return (
     <>
       <div
         onClick={() => setShowActions(true)}
-        className={`flex items-center gap-3 px-4 py-3.5 cursor-pointer active:bg-gray-100 dark:active:bg-gray-700 transition-colors ${
-          isCarryover ? 'bg-blue-50 dark:bg-blue-950/20' : 'bg-white dark:bg-gray-800'
-        }`}
+        className="flex items-center gap-3 px-4 py-3.5 cursor-pointer active:bg-gray-100 dark:active:bg-gray-700 transition-colors bg-white dark:bg-gray-800"
       >
         <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg flex-shrink-0">
           {cat?.icon || '📄'}

@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Category, AppSettings, ThemeMode, TransactionType, MonthlyReport, TransactionFlag, Debt } from '../types';
 
 const STORAGE_KEY = 'koshelek_app_data';
-const CARRYOVER_CATEGORY_NAME = 'Остаток с прошлого месяца';
 
 function createDefaultCategories(): Category[] {
   return [
@@ -11,7 +10,6 @@ function createDefaultCategories(): Category[] {
     { id: 'cat-freelance', name: 'Фриланс', icon: '💻', type: 'income', isDefault: true },
     { id: 'cat-gift-in', name: 'Подарок', icon: '🎁', type: 'income', isDefault: true },
     { id: 'cat-invest', name: 'Инвестиции', icon: '📈', type: 'income', isDefault: true },
-    { id: 'cat-carryover', name: CARRYOVER_CATEGORY_NAME, icon: '📦', type: 'income', isDefault: true },
     { id: 'cat-debt-return', name: 'Возврат долга', icon: '💸', type: 'income', isDefault: true },
     { id: 'cat-other-in', name: 'Другое', icon: '📥', type: 'income', isDefault: true },
     { id: 'cat-groceries', name: 'Продукты', icon: '🛒', type: 'expense', isDefault: true },
@@ -188,23 +186,9 @@ export function useStore() {
 
       setMonthlyReports(prev => [newReport, ...prev]);
 
-      // Create carryover transaction if balance is positive
-      if (balance > 0) {
-        const carryoverCat = categories.find(c => c.name === CARRYOVER_CATEGORY_NAME);
-        if (carryoverCat) {
-          const carryoverTx: Transaction = {
-            id: uuidv4(),
-            type: 'income',
-            amount: balance,
-            categoryId: carryoverCat.id,
-            comment: `Остаток за ${getMonthName(prevMonth)} ${prevYear}`,
-            date: new Date(parseInt(currentMonthKey.split('-')[0]), parseInt(currentMonthKey.split('-')[1]) - 1, 1).toISOString(),
-            flag: 'planned',
-            createdAt: new Date().toISOString(),
-          };
-          setTransactions(prev => [carryoverTx, ...prev]);
-        }
-      }
+      // No carryover transaction created — balance is already correct
+      // as the sum of all transactions. The carryover is shown visually
+      // from the report data, not as a fake income transaction.
 
       setLastCheckedMonth(currentMonthKey);
     }
@@ -437,7 +421,4 @@ export function useStore() {
   };
 }
 
-function getMonthName(month: number): string {
-  const months = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
-  return months[month];
-}
+

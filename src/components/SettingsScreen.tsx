@@ -412,7 +412,7 @@ export default function SettingsScreen({ onClose }: Props) {
           <div className="bg-white dark:bg-gray-900/60 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden divide-y divide-gray-50 dark:divide-gray-800/50">
             <div className="flex items-center justify-between px-4 py-3.5">
               <span className="text-sm text-gray-600 dark:text-gray-400">Версия</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">1.0.2</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">1.0.3</span>
             </div>
             <div className="flex items-center justify-between px-4 py-3.5">
               <span className="text-sm text-gray-600 dark:text-gray-400">Сборка</span>

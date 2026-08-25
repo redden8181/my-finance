@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/StoreContext';
-import { ArrowLeft, Sun, Moon, Trash2, Tag, Plus, Check, Edit3, Download, Upload } from 'lucide-react';
+import { ArrowLeft, Sun, Moon, Trash2, Tag, Plus, Check, Edit3, Download, Upload, Scale } from 'lucide-react';
+import AdjustBalanceSheet from './AdjustBalanceSheet';
 import type { TransactionType, Category } from '../types';
 
 interface Props {
@@ -13,6 +14,7 @@ export default function SettingsScreen({ onClose }: Props) {
   const { settings, setTheme, resetAllData, categories, addCategory, updateCategory, deleteCategory } = useAppStore();
 
   const [showReset, setShowReset] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
   const [resetProgress, setResetProgress] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -348,6 +350,20 @@ export default function SettingsScreen({ onClose }: Props) {
               </div>
               <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />
             </button>
+
+            <button
+              onClick={() => setShowAdjust(true)}
+              className="w-full flex items-center justify-between px-4 py-3.5 text-left"
+            >
+              <div className="flex items-center gap-3">
+                <Scale size={18} className="text-emerald-500" />
+                <div>
+                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200">Корректировка баланса</span>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Указать реальную сумму</p>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />
+            </button>
           </div>
         </div>
 
@@ -412,7 +428,7 @@ export default function SettingsScreen({ onClose }: Props) {
           <div className="bg-white dark:bg-gray-900/60 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden divide-y divide-gray-50 dark:divide-gray-800/50">
             <div className="flex items-center justify-between px-4 py-3.5">
               <span className="text-sm text-gray-600 dark:text-gray-400">Версия</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">1.0.3</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">1.0.4</span>
             </div>
             <div className="flex items-center justify-between px-4 py-3.5">
               <span className="text-sm text-gray-600 dark:text-gray-400">Сборка</span>
@@ -489,6 +505,8 @@ export default function SettingsScreen({ onClose }: Props) {
           </div>
         </div>
       </div>
+
+      {showAdjust && <AdjustBalanceSheet onClose={() => setShowAdjust(false)} />}
     </div>
   );
 }

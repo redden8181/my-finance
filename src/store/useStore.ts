@@ -11,6 +11,7 @@ function createDefaultCategories(): Category[] {
     { id: 'cat-gift-in', name: 'Подарок', icon: '🎁', type: 'income', isDefault: true },
     { id: 'cat-invest', name: 'Инвестиции', icon: '📈', type: 'income', isDefault: true },
     { id: 'cat-debt-return', name: 'Возврат долга', icon: '💸', type: 'income', isDefault: true },
+    { id: 'cat-adjust-in', name: 'Корректировка', icon: '⚖️', type: 'income', isDefault: true },
     { id: 'cat-other-in', name: 'Другое', icon: '📥', type: 'income', isDefault: true },
     { id: 'cat-groceries', name: 'Продукты', icon: '🛒', type: 'expense', isDefault: true },
     { id: 'cat-transport', name: 'Транспорт', icon: '🚌', type: 'expense', isDefault: true },
@@ -22,6 +23,7 @@ function createDefaultCategories(): Category[] {
     { id: 'cat-telecom', name: 'Связь', icon: '📱', type: 'expense', isDefault: true },
     { id: 'cat-subscriptions', name: 'Подписки', icon: '📺', type: 'expense', isDefault: true },
     { id: 'cat-debt-give', name: 'Дал в долг', icon: '💸', type: 'expense', isDefault: true },
+    { id: 'cat-adjust-out', name: 'Корректировка', icon: '⚖️', type: 'expense', isDefault: true },
     { id: 'cat-other-out', name: 'Другое', icon: '📤', type: 'expense', isDefault: true },
   ];
 }
@@ -205,6 +207,32 @@ export function useStore() {
 
   const updateTransaction = useCallback((id: string, updates: Partial<Omit<Transaction, 'id' | 'createdAt'>>) => {
     setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+  }, []);
+
+  // Adjust balance to a real-world value.
+  // Creates a single correcting transaction for the difference.
+  const adjustBalance = useCallback((actualBalance: number, note?: string) => {
+    setTransactions(prev => {
+      const currentBalance = prev.reduce(
+        (sum, t) => sum + (t.type === 'income' ? t.amount : -t.amount),
+        0
+      );
+      const diff = Math.round((actualBalance - currentBalance) * 100) / 100;
+      if (diff === 0) return prev;
+
+      const isIncome = diff > 0;
+      const tx: Transaction = {
+        id: uuidv4(),
+        type: isIncome ? 'income' : 'expense',
+        amount: Math.abs(diff),
+        categoryId: isIncome ? 'cat-adjust-in' : 'cat-adjust-out',
+        comment: note?.trim() || 'Корректировка баланса',
+        date: new Date().toISOString(),
+        flag: 'planned',
+        createdAt: new Date().toISOString(),
+      };
+      return [tx, ...prev];
+    });
   }, []);
 
   const deleteTransaction = useCallback((id: string) => {
@@ -407,6 +435,7 @@ export function useStore() {
     addTransaction,
     updateTransaction,
     deleteTransaction,
+    adjustBalance,
     addCategory,
     updateCategory,
     deleteCategory,

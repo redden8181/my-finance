@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/StoreContext';
 import { ArrowLeft, Plus, Check, Trash2, User, ChevronDown } from 'lucide-react';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatShortDate, formatAgo } from '../utils/format';
 import NumberPad from './NumberPad';
 import type { Debt, DebtDirection } from '../types';
 
@@ -34,6 +34,13 @@ export default function DebtsScreen({ onClose }: Props) {
   const [evaluatedAmount, setEvaluatedAmount] = useState<number | null>(null);
   const [showNumberPad, setShowNumberPad] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
+  const amountInputRef = useRef<HTMLInputElement>(null);
+
+  // Enter on name → jump to amount field with numeric keyboard
+  const focusAmount = () => {
+    setShowNumberPad(false);
+    setTimeout(() => amountInputRef.current?.focus(), 50);
+  };
 
   const filteredDebts = useMemo(() => {
     const sorted = [...debts].sort((a, b) => {
@@ -52,6 +59,15 @@ export default function DebtsScreen({ onClose }: Props) {
     const iOwe = active.filter(d => d.direction === 'i_owe').reduce((s, d) => s + d.amount, 0);
     const owedToMe = active.filter(d => d.direction === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
     return { iOwe, owedToMe, net: owedToMe - iOwe };
+  }, [debts]);
+
+  // One entry per debt, sorted by most recent activity
+  const historyDebts = useMemo(() => {
+    return [...debts].sort((a, b) => {
+      const aLast = a.isPaid && a.paidAt ? a.paidAt : a.createdAt;
+      const bLast = b.isPaid && b.paidAt ? b.paidAt : b.createdAt;
+      return new Date(bLast).getTime() - new Date(aLast).getTime();
+    });
   }, [debts]);
 
   const finalAmount = evaluatedAmount !== null && amount ? evaluatedAmount : parseFloat(amount || '0');
@@ -159,6 +175,13 @@ export default function DebtsScreen({ onClose }: Props) {
                   type="text"
                   value={personName}
                   onChange={e => setPersonName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      focusAmount();
+                    }
+                  }}
+                  enterKeyHint="next"
                   placeholder="Например: Вася"
                   className="w-full mt-1 py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none"
                   autoFocus
@@ -200,6 +223,7 @@ export default function DebtsScreen({ onClose }: Props) {
                 ) : (
                   <div className="relative">
                     <input
+                      ref={amountInputRef}
                       type="text"
                       inputMode="decimal"
                       value={amount}
@@ -207,6 +231,7 @@ export default function DebtsScreen({ onClose }: Props) {
                         setAmount(e.target.value);
                         setEvaluatedAmount(tryEvaluateExpression(e.target.value));
                       }}
+                      enterKeyHint="done"
                       placeholder="0"
                       className="w-full py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-2xl font-bold text-gray-800 dark:text-gray-200 outline-none"
                     />
@@ -311,6 +336,85 @@ export default function DebtsScreen({ onClose }: Props) {
             </div>
           ) : null}
         </div>
+
+        {/* Quiet history log — one card per debt */}
+        {!showAdd && historyDebts.length > 0 && (
+          <div className="mx-4 mt-2 mb-6">
+            <div className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+              История
+            </div>
+
+            <div className="space-y-1.5">
+              {historyDebts.map(d => {
+                const gaveOut = d.direction === 'owed_to_me';
+
+                // Days the debt was open (or is still open)
+                const start = new Date(d.createdAt).getTime();
+                const end = d.isPaid && d.paidAt ? new Date(d.paidAt).getTime() : Date.now();
+                const openDays = Math.max(0, Math.round((end - start) / 86400000));
+
+                return (
+                  <div
+                    key={d.id}
+                    className="rounded-xl bg-gray-50 dark:bg-gray-800/40 px-3 py-2.5"
+                  >
+                    {/* Top row: who + amount + status */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs flex-shrink-0">
+                        {gaveOut ? '📤' : '📥'}
+                      </span>
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 truncate flex-1">
+                        {d.personName}
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex-shrink-0">
+                        {formatCurrency(d.amount)}
+                      </span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
+                          d.isPaid
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                        }`}
+                      >
+                        {d.isPaid ? 'закрыт' : 'открыт'}
+                      </span>
+                    </div>
+
+                    {/* Timeline inside the same card */}
+                    <div className="mt-1.5 pl-5 space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500">
+                        <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
+                        <span>
+                          {gaveOut ? 'дал' : 'взял'} · {formatShortDate(d.createdAt)} · {formatAgo(d.createdAt)}
+                        </span>
+                      </div>
+
+                      {d.isPaid && d.paidAt ? (
+                        <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+                          <span className="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0" />
+                          <span>
+                            {gaveOut ? 'вернули' : 'отдал'} · {formatShortDate(d.paidAt)} · {formatAgo(d.paidAt)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
+                          <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
+                          <span>не закрыт · {openDays} дн.</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {d.comment && (
+                      <div className="mt-1 pl-5 text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                        {d.comment}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -348,8 +452,21 @@ function DebtItem({ debt, onToggle, onDelete }: { debt: Debt; onToggle: () => vo
             {debt.personName}
           </span>
         </div>
+
+        {/* Dates */}
+        <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
+          <span>
+            {debt.direction === 'i_owe' ? 'Взял' : 'Дал'}: {formatShortDate(debt.createdAt)}
+          </span>
+          {debt.isPaid && debt.paidAt && (
+            <span className="text-emerald-600 dark:text-emerald-400">
+              {' · '}Закрыт: {formatShortDate(debt.paidAt)}
+            </span>
+          )}
+        </div>
+
         {debt.comment && (
-          <div className="text-xs text-gray-400 dark:text-gray-500 truncate">
+          <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
             {debt.comment}
           </div>
         )}

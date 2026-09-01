@@ -87,6 +87,7 @@ function TransactionActionSheet({ transaction: tx, onClose }: { transaction: Tra
   const [date, setDate] = useState(tx.date.split('T')[0]);
   const [flag, setFlag] = useState<TransactionFlag>(tx.flag);
   const [recurrencePeriod, setRecurrencePeriod] = useState<RecurrencePeriod>(tx.recurrencePeriod || 'monthly');
+  const [dueDay, setDueDay] = useState<number | undefined>(tx.dueDay);
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('📁');
@@ -103,6 +104,7 @@ function TransactionActionSheet({ transaction: tx, onClose }: { transaction: Tra
       date: new Date(date).toISOString(),
       flag,
       recurrencePeriod: flag === 'regular' ? recurrencePeriod : undefined,
+      dueDay: flag === 'regular' && recurrencePeriod === 'monthly' ? dueDay : undefined,
     });
     onClose();
   };
@@ -247,6 +249,45 @@ function TransactionActionSheet({ transaction: tx, onClose }: { transaction: Tra
                     >{periodLabels[p]}</button>
                   ))}
                 </div>
+
+                {recurrencePeriod === 'monthly' && (
+                  <div className="mb-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={dueDay !== undefined}
+                        onChange={e => setDueDay(e.target.checked ? new Date().getDate() : undefined)}
+                        className="w-4 h-4 rounded accent-emerald-500"
+                      />
+                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        🔔 Напоминать об этом платеже
+                      </span>
+                    </label>
+
+                    {dueDay !== undefined && (
+                      <div className="mt-3">
+                        <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                          Число месяца
+                        </label>
+                        <div className="mt-1.5 grid grid-cols-7 gap-1">
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                            <button
+                              key={day}
+                              onClick={() => setDueDay(day)}
+                              className={`aspect-square rounded-lg text-[11px] font-medium transition-all ${
+                                dueDay === day
+                                  ? 'bg-emerald-500 text-white'
+                                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                              }`}
+                            >
+                              {day}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 

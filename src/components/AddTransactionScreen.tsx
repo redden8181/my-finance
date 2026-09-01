@@ -67,6 +67,8 @@ export default function AddTransactionScreen({ onClose }: Props) {
   const [showCategories, setShowCategories] = useState(false);
   const [evaluatedAmount, setEvaluatedAmount] = useState<number | null>(null);
   const [showNumberPad, setShowNumberPad] = useState(false);
+  const [enableReminder, setEnableReminder] = useState(false);
+  const [dueDay, setDueDay] = useState<number>(new Date().getDate());
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('📁');
@@ -133,6 +135,10 @@ export default function AddTransactionScreen({ onClose }: Props) {
       date: new Date(date).toISOString(),
       flag,
       recurrencePeriod: flag === 'regular' ? recurrencePeriod : undefined,
+      dueDay:
+        flag === 'regular' && recurrencePeriod === 'monthly' && enableReminder
+          ? dueDay
+          : undefined,
     });
     onClose();
   };
@@ -464,6 +470,49 @@ export default function AddTransactionScreen({ onClose }: Props) {
                   </button>
                 ))}
               </div>
+
+              {/* Monthly reminder setup */}
+              {recurrencePeriod === 'monthly' && (
+                <div className="mt-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enableReminder}
+                      onChange={e => setEnableReminder(e.target.checked)}
+                      className="w-4 h-4 rounded accent-emerald-500"
+                    />
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                      🔔 Напоминать об этом платеже
+                    </span>
+                  </label>
+
+                  {enableReminder && (
+                    <div className="mt-3">
+                      <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                        Число месяца
+                      </label>
+                      <div className="mt-1.5 grid grid-cols-7 gap-1">
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                          <button
+                            key={day}
+                            onClick={() => setDueDay(day)}
+                            className={`aspect-square rounded-lg text-[11px] font-medium transition-all ${
+                              dueDay === day
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-2">
+                        Напоминание появится за 10 дней до {dueDay} числа
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

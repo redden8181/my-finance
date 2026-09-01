@@ -22,6 +22,10 @@ export interface Transaction {
   flag: TransactionFlag;
   recurrencePeriod?: RecurrencePeriod;
   createdAt: string;
+  /** Day of month (1-31) when this recurring payment is due */
+  dueDay?: number;
+  /** ISO date of the last time this recurring payment was confirmed paid */
+  lastPaidAt?: string;
 }
 
 export type ThemeMode = 'light' | 'dark';

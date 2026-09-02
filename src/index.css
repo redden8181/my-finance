@@ -139,6 +139,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 .press:active { transform: scale(0.95); }
 
+/* Фолбэк для браузеров без анимации translate (старый Safari) */
+@supports not (translate: 0 0) {
+  @keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .animate-sheet,
+  .animate-pop,
+  .animate-rise,
+  .animate-fade {
+    animation-duration: 0.01s;
+  }
+}
+
 .glow-accent {
   box-shadow: 0 10px 44px -10px color-mix(in srgb, var(--accent) 45%, transparent);
 }

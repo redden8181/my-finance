@@ -1,16 +1,8 @@
-export type TransactionType = 'income' | 'expense';
-
-export type TransactionFlag = 'mandatory' | 'spontaneous' | 'planned' | 'regular';
-
-export type RecurrencePeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
-
-export interface Category {
-  id: string;
-  name: string;
-  icon: string;
-  type: TransactionType;
-  isDefault?: boolean;
-}
+export type TransactionType = "income" | "expense";
+export type TransactionFlag = "mandatory" | "spontaneous" | "planned" | "regular";
+export type RecurrencePeriod = "daily" | "weekly" | "monthly" | "yearly";
+export type DebtDirection = "i_owe" | "owed_to_me";
+export type ThemeMode = "light" | "dark";
 
 export interface Transaction {
   id: string;
@@ -22,19 +14,20 @@ export interface Transaction {
   flag: TransactionFlag;
   recurrencePeriod?: RecurrencePeriod;
   createdAt: string;
-  /** Day of month (1-31) when this recurring payment is due */
-  dueDay?: number;
-  /** ISO date of the last time this recurring payment was confirmed paid */
-  lastPaidAt?: string;
+  dueDay?: number; // 1-31, день ежемесячного платежа
+  lastPaidAt?: string; // когда подтверждена оплата цикла
+  debtId?: string; // связь с долгом
+  debtKind?: "open" | "repay";
 }
 
-export type ThemeMode = 'light' | 'dark';
-
-export interface AppSettings {
-  theme: ThemeMode;
+export interface Category {
+  id: string;
+  name: string;
+  icon: string; // эмодзи
+  type: TransactionType;
+  isDefault?: boolean;
+  isSpecial?: boolean; // служебные (корректировка, долги) — скрыты из выбора
 }
-
-export type DebtDirection = 'i_owe' | 'owed_to_me';
 
 export interface Debt {
   id: string;
@@ -53,9 +46,9 @@ export interface MonthlyReport {
   year: number;
   totalIncome: number;
   totalExpenses: number;
-  balance: number; // remaining for next month
+  balance: number;
   carryoverFromPrevious: number;
-  closedAt: string; // ISO string when the month was closed
+  closedAt: string;
   categoryBreakdown: {
     categoryId: string;
     categoryName: string;
@@ -63,16 +56,14 @@ export interface MonthlyReport {
     type: TransactionType;
     total: number;
   }[];
-  flagBreakdown: {
-    flag: TransactionFlag;
-    total: number;
-  }[];
+  flagBreakdown: { flag: TransactionFlag; total: number }[];
 }
 
-export interface AppState {
+export interface StoredData {
   transactions: Transaction[];
   categories: Category[];
-  settings: AppSettings;
+  settings: { theme: ThemeMode };
   monthlyReports: MonthlyReport[];
-  lastCheckedMonth: string; // "YYYY-MM" format
+  lastCheckedMonth: string; // "YYYY-MM"
+  debts: Debt[];
 }

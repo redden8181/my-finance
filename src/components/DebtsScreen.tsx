@@ -1,493 +1,482 @@
-import { useState, useMemo, useRef } from 'react';
-import { useAppStore } from '../store/StoreContext';
-import { ArrowLeft, Plus, Check, Trash2, User, ChevronDown } from 'lucide-react';
-import { formatCurrency, formatShortDate, formatAgo } from '../utils/format';
-import NumberPad from './NumberPad';
-import type { Debt, DebtDirection } from '../types';
+import { useMemo, useRef, useState } from "react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  ChevronLeft,
+  CircleDollarSign,
+  Plus,
+  RotateCcw,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
+import { useAppStore } from "../store/StoreContext";
+import type { DebtDirection } from "../types";
+import {
+  evaluateExpression,
+  formatDateShort,
+  formatMoney,
+  pluralize,
+} from "../utils/format";
+import { NumberPad } from "./NumberPad";
 
-interface Props {
-  onClose: () => void;
-}
-
-// Try to evaluate simple math expression safely
-function tryEvaluateExpression(expr: string): number | null {
-  if (!/^[\d+\-*/().\s]+$/.test(expr)) return null;
-  try {
-    // eslint-disable-next-line no-new-func
-    const result = Function('"use strict"; return (' + expr + ')')();
-    if (typeof result === 'number' && isFinite(result)) {
-      return Math.max(0, Math.round(result * 100) / 100);
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-export default function DebtsScreen({ onClose }: Props) {
+export function DebtsScreen({ onClose }: { onClose: () => void }) {
   const { debts, addDebt, toggleDebtPaid, deleteDebt } = useAppStore();
-  const [showAdd, setShowAdd] = useState(false);
-  const [direction, setDirection] = useState<DebtDirection>('i_owe');
-  const [personName, setPersonName] = useState('');
-  const [amount, setAmount] = useState('');
-  const [comment, setComment] = useState('');
-  const [evaluatedAmount, setEvaluatedAmount] = useState<number | null>(null);
-  const [showNumberPad, setShowNumberPad] = useState(false);
-  const [filter, setFilter] = useState<'active' | 'all'>('active');
-  const amountInputRef = useRef<HTMLInputElement>(null);
 
-  // Enter on name → jump to amount field with numeric keyboard
-  const focusAmount = () => {
-    setShowNumberPad(false);
-    setTimeout(() => amountInputRef.current?.focus(), 50);
+  const [adding, setAdding] = useState(false);
+  const [direction, setDirection] = useState<DebtDirection>("owed_to_me");
+  const [name, setName] = useState("");
+  const [expr, setExpr] = useState("");
+  const [comment, setComment] = useState("");
+  const [padVisible, setPadVisible] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [nameFocused, setNameFocused] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  const result = useMemo(() => evaluateExpression(expr), [expr]);
+  const canAdd = Boolean(name.trim()) && result !== null && result > 0;
+
+  const open = useMemo(() => debts.filter((d) => !d.isPaid), [debts]);
+  const closed = useMemo(
+    () =>
+      debts
+        .filter((d) => d.isPaid)
+        .sort((a, b) => new Date(b.paidAt || 0).getTime() - new Date(a.paidAt || 0).getTime()),
+    [debts]
+  );
+
+  const iOweTotal = open.filter((d) => d.direction === "i_owe").reduce((s, d) => s + d.amount, 0);
+  const owedTotal = open.filter((d) => d.direction === "owed_to_me").reduce((s, d) => s + d.amount, 0);
+
+  /** Открыть калькулятор, предварительно убрав системную клавиатуру */
+  const showPad = () => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) el.blur();
+    setPadVisible(true);
   };
 
-  const filteredDebts = useMemo(() => {
-    const sorted = [...debts].sort((a, b) => {
-      // Active first
-      if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  /**
+   * Галочка: сумма введена → прячем калькулятор и переходим к имени.
+   * focus() вызывается СИНХРОННО внутри обработчика клика — iOS поднимает
+   * клавиатуру только в рамках пользовательского жеста (setTimeout её ломает).
+   */
+  const confirmAmount = () => {
+    nameRef.current?.focus({ preventScroll: true });
+    setPadVisible(false);
+  };
+
+  const handleKey = (key: string) => {
+    setExpr((prev) => {
+      if (key === "backspace") return prev.slice(0, -1);
+      if (key === ",") {
+        if (prev.includes(",")) return prev;
+        return (prev || "0") + ",";
+      }
+      if (prev.length >= 10) return prev;
+      return prev + key;
     });
-    if (filter === 'active') {
-      return sorted.filter(d => !d.isPaid);
-    }
-    return sorted;
-  }, [debts, filter]);
+  };
 
-  const totals = useMemo(() => {
-    const active = debts.filter(d => !d.isPaid);
-    const iOwe = active.filter(d => d.direction === 'i_owe').reduce((s, d) => s + d.amount, 0);
-    const owedToMe = active.filter(d => d.direction === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
-    return { iOwe, owedToMe, net: owedToMe - iOwe };
-  }, [debts]);
+  const submit = () => {
+    if (!canAdd || result === null) return;
+    addDebt({ direction, personName: name.trim(), amount: result, comment: comment.trim() });
+    setName("");
+    setExpr("");
+    setComment("");
+    setAdding(false);
+    setPadVisible(true);
+    setNameFocused(false);
+  };
 
-  // One entry per debt, sorted by most recent activity
-  const historyDebts = useMemo(() => {
-    return [...debts].sort((a, b) => {
-      const aLast = a.isPaid && a.paidAt ? a.paidAt : a.createdAt;
-      const bLast = b.isPaid && b.paidAt ? b.paidAt : b.createdAt;
-      return new Date(bLast).getTime() - new Date(aLast).getTime();
-    });
-  }, [debts]);
-
-  const finalAmount = evaluatedAmount !== null && amount ? evaluatedAmount : parseFloat(amount || '0');
-  const canSave = finalAmount > 0 && personName.trim();
-
-  const handleSave = () => {
-    if (!canSave) return;
-    addDebt({
-      direction,
-      personName: personName.trim(),
-      amount: finalAmount,
-      comment: comment.trim(),
-    });
-    setDirection('i_owe');
-    setPersonName('');
-    setAmount('');
-    setComment('');
-    setShowAdd(false);
-    setShowNumberPad(false);
+  const dayCount = (from: string, to?: string) => {
+    const ms = new Date(to || new Date().toISOString()).getTime() - new Date(from).getTime();
+    return Math.max(0, Math.floor(ms / 86400000));
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-gray-50 dark:bg-gray-950 flex flex-col">
-      <div className="safe-top" />
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 pt-1.5 pb-1.5 border-b border-gray-100 dark:border-gray-800">
+    <div className="fixed inset-0 z-[55] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+      <header className="flex items-center gap-3 px-5 pt-safe pb-3">
         <button
           onClick={onClose}
-          className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="press flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface"
+          aria-label="Назад"
         >
-          <ArrowLeft size={20} />
+          <ChevronLeft size={19} />
         </button>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex-1">Долги</h2>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-            showAdd
-              ? 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-              : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
-          }`}
-        >
-          {showAdd ? <ChevronDown size={20} /> : <Plus size={20} />}
-        </button>
-      </div>
+        <h1 className="flex-1 text-center font-display text-[13px] font-semibold tracking-[0.18em] uppercase">
+          Долги
+        </h1>
+        <span className="w-10" />
+      </header>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* Summary */}
-        {!showAdd && (
-          <div className="mx-4 mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl p-4 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/20 border border-red-100 dark:border-red-900/30">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-base">📤</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Я должен</span>
-              </div>
-              <div className="text-base font-bold text-red-500 dark:text-red-400">
-                {formatCurrency(totals.iOwe)}
-              </div>
-            </div>
-            <div className="rounded-2xl p-4 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 border border-emerald-100 dark:border-emerald-900/30">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-base">📥</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Мне должны</span>
-              </div>
-              <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(totals.owedToMe)}
-              </div>
-            </div>
+      <div className="flex-1 space-y-5 overflow-y-auto px-5 pb-10 no-scrollbar">
+        {/* summary */}
+        <div className="grid animate-rise grid-cols-2 gap-2.5">
+          <div className="rounded-[22px] border border-line bg-surface p-4">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-expense-soft">
+              <ArrowUpRight size={15} className="text-expense" strokeWidth={2.6} />
+            </span>
+            <p className="mt-2.5 text-[10px] font-bold tracking-[0.16em] text-muted uppercase">Я должен</p>
+            <p className="font-display text-[17px] font-semibold text-expense tabular-nums">
+              {formatMoney(iOweTotal)}
+            </p>
           </div>
+          <div className="rounded-[22px] border border-line bg-surface p-4">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-income-soft">
+              <ArrowDownLeft size={15} className="text-income" strokeWidth={2.6} />
+            </span>
+            <p className="mt-2.5 text-[10px] font-bold tracking-[0.16em] text-muted uppercase">Мне должны</p>
+            <p className="font-display text-[17px] font-semibold text-income tabular-nums">
+              {formatMoney(owedTotal)}
+            </p>
+          </div>
+        </div>
+
+        {/* add */}
+        <button
+          onClick={() => {
+            setAdding(true);
+            setPadVisible(true);
+            setConfirmDeleteId(null);
+          }}
+          className="press glow-accent animate-rise flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-[15px] font-bold text-on-accent"
+        >
+          <Plus size={18} strokeWidth={2.8} />
+          Новый долг
+        </button>
+
+        {/* open debts */}
+        {open.length > 0 && (
+          <section className="animate-rise" style={{ animationDelay: "80ms" }}>
+            <h2 className="mb-2.5 px-1 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+              Активные · {open.length}
+            </h2>
+            <div className="space-y-2.5">
+              {open.map((d) => (
+                <div key={d.id} className="rounded-[22px] border border-line bg-surface p-4">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                        d.direction === "owed_to_me" ? "bg-income-soft" : "bg-expense-soft"
+                      }`}
+                    >
+                      <UserRound
+                        size={19}
+                        className={d.direction === "owed_to_me" ? "text-income" : "text-expense"}
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-bold">{d.personName}</p>
+                      <p className="text-xs font-medium text-muted">
+                        {d.direction === "owed_to_me" ? "Вам должны" : "Вы должны"} · от{" "}
+                        {formatDateShort(d.createdAt)}
+                      </p>
+                    </div>
+                    <p
+                      className={`font-display text-[15px] font-semibold tabular-nums ${
+                        d.direction === "owed_to_me" ? "text-income" : "text-expense"
+                      }`}
+                    >
+                      {formatMoney(d.amount)}
+                    </p>
+                  </div>
+                  {d.comment ? (
+                    <p className="mt-2 rounded-xl bg-surface2/60 px-3 py-2 text-xs font-medium text-muted">
+                      {d.comment}
+                    </p>
+                  ) : null}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => toggleDebtPaid(d.id)}
+                      className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-income-soft text-[13px] font-bold text-income"
+                    >
+                      <Check size={15} strokeWidth={3} />
+                      Погашен
+                    </button>
+                    {confirmDeleteId === d.id ? (
+                      <button
+                        onClick={() => {
+                          deleteDebt(d.id);
+                          setConfirmDeleteId(null);
+                        }}
+                        className="press flex h-10 items-center justify-center gap-1.5 rounded-xl bg-expense px-3 text-[13px] font-bold text-on-accent"
+                      >
+                        <Trash2 size={14} />
+                        Точно?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(d.id)}
+                        className="press flex h-10 w-10 items-center justify-center rounded-xl bg-surface2 text-muted"
+                        aria-label="Удалить долг"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
-        {/* Add form */}
-        {showAdd && (
-          <div className="mx-4 mt-4">
-            <div className="bg-white dark:bg-gray-900/60 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
-              {/* Direction */}
-              <div className="flex bg-gray-100 dark:bg-gray-900 rounded-xl p-1 mb-4">
-                <button
-                  onClick={() => setDirection('i_owe')}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                    direction === 'i_owe'
-                      ? 'bg-white dark:bg-gray-800 text-red-500 shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400'
-                  }`}
-                >
-                  Я должен
-                </button>
-                <button
-                  onClick={() => setDirection('owed_to_me')}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                    direction === 'owed_to_me'
-                      ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400'
-                  }`}
-                >
-                  Мне должны
-                </button>
-              </div>
-
-              {/* Person Name */}
-              <div className="mb-3">
-                <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                  Имя
-                </label>
-                <input
-                  type="text"
-                  value={personName}
-                  onChange={e => setPersonName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      focusAmount();
-                    }
-                  }}
-                  enterKeyHint="next"
-                  placeholder="Например: Вася"
-                  className="w-full mt-1 py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {/* Amount */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                    Сумма
-                  </label>
-                  <button
-                    onClick={() => setShowNumberPad(!showNumberPad)}
-                    className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600"
-                  >
-                    {showNumberPad ? 'Ввод' : 'Клавиатура'}
-                  </button>
-                </div>
-                {showNumberPad ? (
-                  <div>
-                    <div className="relative min-h-[40px] flex items-center justify-end py-2">
-                      <div className="w-full text-2xl font-bold text-right text-gray-800 dark:text-gray-100">
-                        {amount || <span className="text-gray-200 dark:text-gray-700">0</span>}
-                      </div>
-                      <span className="text-xl text-gray-300 dark:text-gray-600 font-medium ml-1">₽</span>
+        {/* history */}
+        {closed.length > 0 && (
+          <section className="animate-rise" style={{ animationDelay: "140ms" }}>
+            <h2 className="mb-2.5 px-1 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+              История
+            </h2>
+            <div className="space-y-2.5">
+              {closed.map((d) => (
+                <div key={d.id} className="rounded-[22px] border border-line bg-surface p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface2">
+                      <CircleDollarSign size={18} className="text-muted" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-2 truncate text-[15px] font-bold">
+                        {d.personName}
+                        <span className="rounded-full bg-income-soft px-2 py-0.5 text-[10px] font-bold text-income">
+                          закрыт
+                        </span>
+                      </p>
+                      <p className="text-xs font-medium text-muted">
+                        {d.direction === "owed_to_me" ? "Вам вернули" : "Вы вернули"} ·{" "}
+                        <span className="tabular-nums">{formatMoney(d.amount)}</span>
+                      </p>
                     </div>
-                    {evaluatedAmount !== null && amount && (
-                      <div className="text-xs text-emerald-600 dark:text-emerald-400 text-right mb-2">
-                        = {formatCurrency(evaluatedAmount)}
-                      </div>
-                    )}
-                    <div className="h-px bg-gray-100 dark:bg-gray-800 mb-2" />
-                    <NumberPad value={amount} onChange={(v) => {
-                      setAmount(v);
-                      setEvaluatedAmount(tryEvaluateExpression(v));
-                    }} />
                   </div>
-                ) : (
-                  <div className="relative">
-                    <input
-                      ref={amountInputRef}
-                      type="text"
-                      inputMode="decimal"
-                      value={amount}
-                      onChange={e => {
-                        setAmount(e.target.value);
-                        setEvaluatedAmount(tryEvaluateExpression(e.target.value));
-                      }}
-                      enterKeyHint="done"
-                      placeholder="0"
-                      className="w-full py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-2xl font-bold text-gray-800 dark:text-gray-200 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xl text-gray-300 dark:text-gray-600">₽</span>
-                    {evaluatedAmount !== null && amount && (
-                      <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 px-1">
-                        = {formatCurrency(evaluatedAmount)}
-                      </div>
+
+                  {/* timeline */}
+                  <div className="mt-3 ml-5 space-y-0 border-l-2 border-line pl-4">
+                    <div className="relative pb-2.5">
+                      <span className="absolute top-1 -left-[21px] h-2 w-2 rounded-full bg-muted" />
+                      <p className="text-xs font-medium text-muted">
+                        Открыт · {formatDateShort(d.createdAt)}
+                      </p>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute top-1 -left-[21px] h-2 w-2 rounded-full bg-income" />
+                      <p className="text-xs font-bold text-ink">
+                        Закрыт · {d.paidAt ? formatDateShort(d.paidAt) : "—"}
+                        <span className="ml-1.5 font-medium text-muted">
+                          ({dayCount(d.createdAt, d.paidAt)}{" "}
+                          {pluralize(dayCount(d.createdAt, d.paidAt), "день", "дня", "дней")})
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => toggleDebtPaid(d.id)}
+                      className="press flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface2 text-[13px] font-bold text-muted"
+                    >
+                      <RotateCcw size={14} />
+                      Вернуть в активные
+                    </button>
+                    {confirmDeleteId === d.id ? (
+                      <button
+                        onClick={() => {
+                          deleteDebt(d.id);
+                          setConfirmDeleteId(null);
+                        }}
+                        className="press flex h-9 items-center justify-center gap-1 rounded-xl bg-expense px-3 text-[13px] font-bold text-on-accent"
+                      >
+                        Точно?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(d.id)}
+                        className="press flex h-9 w-9 items-center justify-center rounded-xl bg-surface2 text-muted"
+                        aria-label="Удалить долг"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-              {/* Comment */}
-              <div className="mb-3">
-                <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                  Комментарий
-                </label>
-                <input
-                  type="text"
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  placeholder="Необязательно"
-                  className="w-full mt-1 py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none"
-                />
-              </div>
+        {open.length === 0 && closed.length === 0 && !adding && (
+          <div className="flex flex-col items-center rounded-[26px] border border-dashed border-line bg-surface/40 px-6 py-12 text-center">
+            <span className="glow-accent flex h-20 w-20 items-center justify-center rounded-full bg-accent-soft">
+              <CircleDollarSign size={34} className="text-accent-ink" strokeWidth={1.8} />
+            </span>
+            <p className="mt-4 font-display text-[15px] font-semibold">Долгов нет</p>
+            <p className="mt-1.5 max-w-[250px] text-sm font-medium text-muted">
+              Здесь появятся записи, когда вы кому-то одолжите деньги или возьмёте в долг
+            </p>
+          </div>
+        )}
+      </div>
 
+      {/* форма нового долга */}
+      {adding && (
+        <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+          <header className="flex items-center gap-3 px-5 pt-safe pb-3">
+            <button
+              onClick={() => setAdding(false)}
+              className="press flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface"
+              aria-label="Закрыть"
+            >
+              <X size={19} />
+            </button>
+            <h1 className="flex-1 text-center font-display text-[13px] font-semibold tracking-[0.18em] uppercase">
+              Новый долг
+            </h1>
+            <span className="w-10" />
+          </header>
+
+          {/* направление */}
+          <div className="px-5">
+            <div className="relative grid grid-cols-2 rounded-full border border-line bg-surface p-1">
+              <span
+                className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full transition-all duration-300"
+                style={{
+                  transform: direction === "i_owe" ? "translateX(100%)" : "translateX(0)",
+                  background: direction === "i_owe" ? "var(--expense)" : "var(--income)",
+                }}
+              />
               <button
-                onClick={handleSave}
-                disabled={!canSave}
-                className={`w-full py-3 rounded-xl text-sm font-semibold transition-all ${
-                  canSave
-                    ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-300 dark:text-gray-600'
+                onClick={() => setDirection("owed_to_me")}
+                className={`relative z-10 h-9.5 rounded-full text-[13px] font-bold transition-colors ${
+                  direction === "owed_to_me" ? "text-on-accent" : "text-muted"
                 }`}
               >
-                Добавить
+                Мне должны
+              </button>
+              <button
+                onClick={() => setDirection("i_owe")}
+                className={`relative z-10 h-9.5 rounded-full text-[13px] font-bold transition-colors ${
+                  direction === "i_owe" ? "text-on-accent" : "text-muted"
+                }`}
+              >
+                Я должен
               </button>
             </div>
           </div>
-        )}
 
-        {/* Filter */}
-        {!showAdd && debts.length > 0 && (
-          <div className="mx-4 mt-4 flex gap-2">
+          {/* сумма */}
+          <div className="relative z-20 px-5 pt-5 pb-3 text-center">
             <button
-              onClick={() => setFilter('active')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filter === 'active'
-                  ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-800'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
-              }`}
+              onClick={showPad}
+              className="mx-auto block"
+              aria-label="Показать клавиатуру"
             >
-              Активные
-            </button>
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filter === 'all'
-                  ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-800'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              Все
+              <p
+                className={`min-h-13 font-display text-[40px] leading-none font-semibold tracking-tight ${
+                  expr ? "text-ink" : "text-muted/40"
+                }`}
+              >
+                {expr || "0"}
+                <span className="ml-1.5 text-[22px] text-muted">₽</span>
+              </p>
             </button>
           </div>
-        )}
 
-        {/* List */}
-        <div className="mx-4 mt-3 mb-4">
-          {!showAdd && debts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-                <User size={28} className="text-gray-300 dark:text-gray-600" />
-              </div>
-              <p className="text-gray-400 dark:text-gray-500 text-sm font-medium">
-                Нет долгов
-              </p>
-              <p className="text-gray-300 dark:text-gray-600 text-xs mt-1">
-                Нажмите «+» чтобы добавить
-              </p>
-            </div>
-          ) : !showAdd && filteredDebts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mb-3">
-                <Check size={20} className="text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <p className="text-gray-400 dark:text-gray-500 text-sm">
-                Все долги погашены 🎉
-              </p>
-            </div>
-          ) : !showAdd ? (
-            <div className="space-y-2">
-              {filteredDebts.map(debt => (
-                <DebtItem
-                  key={debt.id}
-                  debt={debt}
-                  onToggle={() => toggleDebtPaid(debt.id)}
-                  onDelete={() => deleteDebt(debt.id)}
+          {/* поля */}
+          <div className="relative flex-1 overflow-hidden">
+            <div className="h-full space-y-2.5 overflow-y-auto px-5 pb-4 no-scrollbar">
+              <div className="relative">
+                <input
+                  ref={nameRef}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onFocus={() => {
+                    setPadVisible(false);
+                    setNameFocused(true);
+                  }}
+                  onBlur={() => setNameFocused(false)}
+                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  enterKeyHint="done"
+                  placeholder="Имя человека"
+                  className="h-12.5 w-full rounded-2xl border border-line bg-surface pl-4 pr-14 text-[15px] font-bold outline-none placeholder:font-medium placeholder:text-muted focus:border-accent"
                 />
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Quiet history log — one card per debt */}
-        {!showAdd && historyDebts.length > 0 && (
-          <div className="mx-4 mt-2 mb-6">
-            <div className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-              История
-            </div>
-
-            <div className="space-y-1.5">
-              {historyDebts.map(d => {
-                const gaveOut = d.direction === 'owed_to_me';
-
-                // Days the debt was open (or is still open)
-                const start = new Date(d.createdAt).getTime();
-                const end = d.isPaid && d.paidAt ? new Date(d.paidAt).getTime() : Date.now();
-                const openDays = Math.max(0, Math.round((end - start) / 86400000));
-
-                return (
-                  <div
-                    key={d.id}
-                    className="rounded-xl bg-gray-50 dark:bg-gray-800/40 px-3 py-2.5"
+                {nameFocused && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => nameRef.current?.blur()}
+                    className="press glow-accent animate-pop absolute top-1/2 right-2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-on-accent"
+                    aria-label="Готово, скрыть клавиатуру"
                   >
-                    {/* Top row: who + amount + status */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs flex-shrink-0">
-                        {gaveOut ? '📤' : '📥'}
-                      </span>
-                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 truncate flex-1">
-                        {d.personName}
-                      </span>
-                      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        {formatCurrency(d.amount)}
-                      </span>
-                      <span
-                        className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
-                          d.isPaid
-                            ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                        }`}
-                      >
-                        {d.isPaid ? 'закрыт' : 'открыт'}
-                      </span>
-                    </div>
-
-                    {/* Timeline inside the same card */}
-                    <div className="mt-1.5 pl-5 space-y-0.5">
-                      <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500">
-                        <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
-                        <span>
-                          {gaveOut ? 'дал' : 'взял'} · {formatShortDate(d.createdAt)} · {formatAgo(d.createdAt)}
-                        </span>
-                      </div>
-
-                      {d.isPaid && d.paidAt ? (
-                        <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                          <span className="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0" />
-                          <span>
-                            {gaveOut ? 'вернули' : 'отдал'} · {formatShortDate(d.paidAt)} · {formatAgo(d.paidAt)}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
-                          <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
-                          <span>не закрыт · {openDays} дн.</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {d.comment && (
-                      <div className="mt-1 pl-5 text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                        {d.comment}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                    <Check size={19} strokeWidth={3.2} />
+                  </button>
+                )}
+              </div>
+              <input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                onFocus={() => setPadVisible(false)}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                enterKeyHint="done"
+                placeholder="Комментарий (необязательно)"
+                className="h-12.5 w-full rounded-2xl border border-line bg-surface px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:text-muted focus:border-accent"
+              />
+              <p className="px-1 pt-1 text-xs font-medium text-muted">
+                {direction === "owed_to_me"
+                  ? "Сумма спишется с баланса — вы отдаёте деньги."
+                  : "Сумма добавится к балансу — вы получаете деньги."}
+              </p>
             </div>
+
+            {padVisible && (
+              <button
+                onClick={() => setPadVisible(false)}
+                className="absolute inset-0 z-10 animate-fade cursor-default"
+                style={{ background: "var(--focus-scrim)" }}
+                aria-label="Скрыть клавиатуру"
+                tabIndex={-1}
+              />
+            )}
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-function DebtItem({ debt, onToggle, onDelete }: { debt: Debt; onToggle: () => void; onDelete: () => void }) {
-  return (
-    <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-      debt.isPaid
-        ? 'bg-gray-50 dark:bg-gray-900/40 border-gray-100 dark:border-gray-800 opacity-60'
-        : debt.direction === 'i_owe'
-        ? 'bg-white dark:bg-gray-900/60 border-gray-100 dark:border-gray-800'
-        : 'bg-white dark:bg-gray-900/60 border-gray-100 dark:border-gray-800'
-    }`}>
-      <button
-        onClick={onToggle}
-        className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
-          debt.isPaid
-            ? 'bg-emerald-100 dark:bg-emerald-900/40'
-            : 'border-2 border-gray-200 dark:border-gray-700 hover:border-emerald-400'
-        }`}
-      >
-        {debt.isPaid && <Check size={16} className="text-emerald-600 dark:text-emerald-400" />}
-      </button>
+          {/* клавиатура + действие */}
+          <div
+            className={`relative z-20 px-5 pt-3 pb-safe ${
+              padVisible
+                ? "pad-panel rounded-t-[26px] border-t border-line bg-surface"
+                : "border-t border-line bg-bg"
+            }`}
+          >
+            {padVisible && (
+              <div className="animate-pop">
+                <NumberPad onKey={handleKey} withOperators={false} />
+              </div>
+            )}
 
-      <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-lg flex-shrink-0">
-        {debt.direction === 'i_owe' ? '📤' : '📥'}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className={`text-sm font-medium truncate ${
-            debt.isPaid ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'
-          }`}>
-            {debt.personName}
-          </span>
-        </div>
-
-        {/* Dates */}
-        <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
-          <span>
-            {debt.direction === 'i_owe' ? 'Взял' : 'Дал'}: {formatShortDate(debt.createdAt)}
-          </span>
-          {debt.isPaid && debt.paidAt && (
-            <span className="text-emerald-600 dark:text-emerald-400">
-              {' · '}Закрыт: {formatShortDate(debt.paidAt)}
-            </span>
-          )}
-        </div>
-
-        {debt.comment && (
-          <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
-            {debt.comment}
+            {padVisible ? (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={confirmAmount}
+                className={`press mt-2.5 mb-1 flex h-14 w-full items-center justify-center rounded-2xl ${
+                  result !== null && result > 0
+                    ? "glow-accent bg-accent text-on-accent"
+                    : "bg-surface2 text-muted"
+                }`}
+                aria-label="Готово, перейти к имени"
+              >
+                <Check size={28} strokeWidth={3.2} />
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={!canAdd}
+                className={`press mt-2.5 mb-1 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-extrabold ${
+                  canAdd ? "glow-accent bg-accent text-on-accent" : "bg-surface2 text-muted"
+                }`}
+              >
+                <Check size={18} strokeWidth={3.2} />
+                Добавить долг
+              </button>
+            )}
           </div>
-        )}
-      </div>
-
-      <div className={`text-sm font-semibold flex-shrink-0 ${
-        debt.isPaid
-          ? 'text-gray-400 dark:text-gray-500 line-through'
-          : debt.direction === 'i_owe'
-          ? 'text-red-500 dark:text-red-400'
-          : 'text-emerald-600 dark:text-emerald-400'
-      }`}>
-        {debt.direction === 'i_owe' ? '-' : '+'}{formatCurrency(debt.amount)}
-      </div>
-
-      <button
-        onClick={onDelete}
-        className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 flex-shrink-0"
-      >
-        <Trash2 size={14} />
-      </button>
+        </div>
+      )}
     </div>
   );
 }

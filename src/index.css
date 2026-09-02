@@ -1,68 +1,163 @@
+@import url("https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap");
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-* {
-  -webkit-tap-highlight-color: transparent;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
-  background-color: #ffffff;
-}
-
-::-webkit-scrollbar {
-  width: 0px;
-  height: 0px;
-}
-
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-input[type="date"] {
+/* ---------- светлая тема (по умолчанию) — "Salt" ---------- */
+:root {
+  --bg: #eceee8;
+  --surface: #fbfbf7;
+  --surface2: #e3e5da;
+  --ink: #14161c;
+  --muted: #6f7268;
+  --line: rgba(20, 22, 28, 0.1);
+  --income: #0ca678;
+  --income-soft: rgba(12, 166, 120, 0.13);
+  --expense: #e85d44;
+  --expense-soft: rgba(232, 93, 68, 0.11);
+  --accent: #a8d900;
+  --accent-soft: rgba(140, 190, 0, 0.15);
+  --accent-ink: #4f6f00;
+  --on-accent: #161a05;
+  --sheet-scrim: rgba(24, 26, 32, 0.34);
+  --focus-scrim: rgba(24, 26, 32, 0.3);
+  --orb-1: rgba(168, 217, 0, 0.18);
+  --orb-2: rgba(90, 140, 255, 0.1);
   color-scheme: light;
 }
 
-.dark input[type="date"] {
+/* ---------- тёмная тема — "Graphite Neon" ---------- */
+:root.dark {
+  --bg: #0b0c10;
+  --surface: #14161d;
+  --surface2: #1f222c;
+  --ink: #f2f4ee;
+  --muted: #878d9b;
+  --line: rgba(242, 244, 238, 0.08);
+  --income: #6be8a9;
+  --income-soft: rgba(107, 232, 169, 0.13);
+  --expense: #ff8f7a;
+  --expense-soft: rgba(255, 143, 122, 0.13);
+  --accent: #d3ff4d;
+  --accent-soft: rgba(211, 255, 77, 0.12);
+  --accent-ink: #d3ff4d;
+  --on-accent: #10130a;
+  --sheet-scrim: rgba(2, 3, 6, 0.62);
+  --focus-scrim: rgba(2, 3, 6, 0.55);
+  --orb-1: rgba(211, 255, 77, 0.13);
+  --orb-2: rgba(106, 168, 255, 0.1);
   color-scheme: dark;
 }
 
-.scrollbar-hide {
-  -ms-overflow-style: none;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-income: var(--income);
+  --color-income-soft: var(--income-soft);
+  --color-expense: var(--expense);
+  --color-expense-soft: var(--expense-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-on-accent: var(--on-accent);
+  --font-sans: "Onest", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Unbounded", "Onest", ui-sans-serif, sans-serif;
+
+  --animate-fade: fade 0.35s ease both;
+  --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-sheet: sheet-up 0.45s cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-pop: pop 0.35s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  --animate-orbit: orbit 14s ease-in-out infinite alternate;
+
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes rise {
+    from { opacity: 0; translate: 0 16px; }
+    to { opacity: 1; translate: 0 0; }
+  }
+  @keyframes sheet-up {
+    from { translate: 0 100%; }
+    to { translate: 0 0; }
+  }
+  @keyframes pop {
+    from { opacity: 0; scale: 0.94; }
+    to { opacity: 1; scale: 1; }
+  }
+  @keyframes orbit {
+    from { transform: translate3d(0, 0, 0); }
+    to { transform: translate3d(24px, 30px, 0); }
+  }
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+.pt-safe { padding-top: max(env(safe-area-inset-top), 0.75rem); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }
+
+.no-scrollbar {
   scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+input, textarea, select {
+  font-size: 16px;
 }
 
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
 }
 
-.safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
+::selection {
+  background: var(--accent-soft);
 }
 
-button, a {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
+.press {
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease,
+    background-color 0.2s ease, box-shadow 0.25s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.press:active { transform: scale(0.95); }
+
+.glow-accent {
+  box-shadow: 0 10px 44px -10px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.overflow-y-auto {
-  -webkit-overflow-scrolling: touch;
+.glow-card {
+  box-shadow: 0 24px 60px -36px rgba(40, 50, 20, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+:root.dark .glow-card {
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Панель клавиатуры: приподнята над затемнённым фоном */
+.pad-panel {
+  box-shadow: 0 -26px 60px -22px rgba(30, 40, 15, 0.4);
+}
+
+:root.dark .pad-panel {
+  box-shadow: 0 -26px 60px -18px rgba(0, 0, 0, 0.7);
 }

@@ -1,17 +1,15 @@
-import React, { createContext, useContext } from 'react';
-import { useStore } from './useStore';
+import { createContext, useContext, type ReactNode } from "react";
+import { useStore, type Store } from "./useStore";
 
-type StoreType = ReturnType<typeof useStore>;
+const StoreContext = createContext<Store | null>(null);
 
-const StoreContext = createContext<StoreType | null>(null);
-
-export function StoreProvider({ children }: { children: React.ReactNode }) {
+export function StoreProvider({ children }: { children: ReactNode }) {
   const store = useStore();
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 
-export function useAppStore(): StoreType {
+export function useAppStore(): Store {
   const ctx = useContext(StoreContext);
-  if (!ctx) throw new Error('useAppStore must be used within StoreProvider');
+  if (!ctx) throw new Error("useAppStore должен использоваться внутри StoreProvider");
   return ctx;
 }

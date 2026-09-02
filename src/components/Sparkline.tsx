@@ -1,108 +1,56 @@
-import { useMemo } from 'react';
+import { useId } from "react";
 
-interface Props {
-  data: number[];
-  width?: number;
-  height?: number;
-  strokeWidth?: number;
-  className?: string;
-}
+/** Мини-график баланса (area + line) */
+export function Sparkline({ data, height = 56 }: { data: number[]; height?: number }) {
+  const gid = useId();
+  const w = 320;
+  const h = height;
+  const pad = 4;
 
-export default function Sparkline({
-  data,
-  width = 120,
-  height = 32,
-  strokeWidth = 2,
-  className = '',
-}: Props) {
-  const path = useMemo(() => {
-    if (data.length < 2) return '';
+  if (data.length < 2) return null;
 
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const stepX = (w - pad * 2) / (data.length - 1);
 
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height - strokeWidth * 2) - strokeWidth;
-      return `${x},${y}`;
-    });
+  const points = data.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+    return [x, y] as const;
+  });
 
-    return `M ${points.join(' L ')}`;
-  }, [data, width, height, strokeWidth]);
+  const line = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const area = `${line} L${(w - pad).toFixed(1)},${h} L${pad},${h} Z`;
 
-  const trend = useMemo(() => {
-    if (data.length < 2) return 'neutral';
-    const first = data.slice(0, Math.floor(data.length / 3)).reduce((a, b) => a + b, 0) / Math.floor(data.length / 3);
-    const last = data.slice(-Math.floor(data.length / 3)).reduce((a, b) => a + b, 0) / Math.floor(data.length / 3);
-    if (last > first * 1.05) return 'up';
-    if (last < first * 0.95) return 'down';
-    return 'neutral';
-  }, [data]);
-
-  const strokeColor = trend === 'up' 
-    ? 'stroke-emerald-500' 
-    : trend === 'down' 
-    ? 'stroke-red-400' 
-    : 'stroke-gray-400';
-
-  const gradientId = `sparkline-gradient-${Math.random().toString(36).slice(2)}`;
-
-  if (data.length < 2) {
-    return (
-      <div 
-        className={`flex items-center justify-center ${className}`} 
-        style={{ width, height }}
-      >
-        <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
-      </div>
-    );
-  }
+  const trendUp = data[data.length - 1] >= data[0];
+  const color = trendUp ? "var(--income)" : "var(--expense)";
+  const [lx, ly] = points[points.length - 1];
 
   return (
     <svg
-      width={width}
-      height={height}
-      className={className}
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={`0 0 ${w} ${h}`}
+      className="h-full w-full"
+      preserveAspectRatio="none"
+      aria-hidden
     >
       <defs>
-        <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop 
-            offset="0%" 
-            className={trend === 'up' ? 'stop-emerald-500/30' : trend === 'down' ? 'stop-red-400/30' : 'stop-gray-400/30'} 
-            style={{ stopColor: trend === 'up' ? 'rgb(16 185 129 / 0.2)' : trend === 'down' ? 'rgb(248 113 113 / 0.2)' : 'rgb(156 163 175 / 0.2)' }}
-          />
-          <stop 
-            offset="100%" 
-            style={{ stopColor: 'transparent' }}
-          />
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      
-      {/* Fill area */}
+      <path d={area} fill={`url(#${gid})`} />
       <path
-        d={`${path} L ${width},${height} L 0,${height} Z`}
-        fill={`url(#${gradientId})`}
-      />
-      
-      {/* Line */}
-      <path
-        d={path}
+        d={line}
         fill="none"
-        className={strokeColor}
-        strokeWidth={strokeWidth}
+        stroke={color}
+        strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
       />
-      
-      {/* End dot */}
-      <circle
-        cx={width}
-        cy={height - ((data[data.length - 1] - Math.min(...data)) / (Math.max(...data) - Math.min(...data) || 1)) * (height - strokeWidth * 2) - strokeWidth}
-        r={3}
-        className={trend === 'up' ? 'fill-emerald-500' : trend === 'down' ? 'fill-red-400' : 'fill-gray-400'}
-      />
+      <circle cx={lx} cy={ly} r="3.5" fill={color} stroke="var(--surface)" strokeWidth="1.5" />
     </svg>
   );
 }

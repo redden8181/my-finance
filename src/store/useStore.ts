@@ -1,453 +1,579 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import type { Transaction, Category, AppSettings, ThemeMode, TransactionType, MonthlyReport, TransactionFlag, Debt } from '../types';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { v4 as uuid } from "uuid";
+import type {
+  Category,
+  Debt,
+  DebtDirection,
+  MonthlyReport,
+  StoredData,
+  ThemeMode,
+  Transaction,
+  TransactionFlag,
+  TransactionType,
+} from "../types";
+import { daysInMonth, monthKeyOf } from "../utils/format";
 
-const STORAGE_KEY = 'koshelek_app_data';
+const STORAGE_KEY = "koshelek_app_data";
 
-function createDefaultCategories(): Category[] {
-  return [
-    { id: 'cat-salary', name: 'Зарплата', icon: '💰', type: 'income', isDefault: true },
-    { id: 'cat-freelance', name: 'Фриланс', icon: '💻', type: 'income', isDefault: true },
-    { id: 'cat-gift-in', name: 'Подарок', icon: '🎁', type: 'income', isDefault: true },
-    { id: 'cat-invest', name: 'Инвестиции', icon: '📈', type: 'income', isDefault: true },
-    { id: 'cat-debt-return', name: 'Возврат долга', icon: '💸', type: 'income', isDefault: true },
-    { id: 'cat-adjust-in', name: 'Корректировка', icon: '⚖️', type: 'income', isDefault: true },
-    { id: 'cat-other-in', name: 'Другое', icon: '📥', type: 'income', isDefault: true },
-    { id: 'cat-groceries', name: 'Продукты', icon: '🛒', type: 'expense', isDefault: true },
-    { id: 'cat-transport', name: 'Транспорт', icon: '🚌', type: 'expense', isDefault: true },
-    { id: 'cat-cafe', name: 'Кафе', icon: '☕', type: 'expense', isDefault: true },
-    { id: 'cat-entertainment', name: 'Развлечения', icon: '🎮', type: 'expense', isDefault: true },
-    { id: 'cat-health', name: 'Здоровье', icon: '💊', type: 'expense', isDefault: true },
-    { id: 'cat-clothes', name: 'Одежда', icon: '👕', type: 'expense', isDefault: true },
-    { id: 'cat-housing', name: 'Жильё', icon: '🏠', type: 'expense', isDefault: true },
-    { id: 'cat-telecom', name: 'Связь', icon: '📱', type: 'expense', isDefault: true },
-    { id: 'cat-subscriptions', name: 'Подписки', icon: '📺', type: 'expense', isDefault: true },
-    { id: 'cat-debt-give', name: 'Дал в долг', icon: '💸', type: 'expense', isDefault: true },
-    { id: 'cat-adjust-out', name: 'Корректировка', icon: '⚖️', type: 'expense', isDefault: true },
-    { id: 'cat-other-out', name: 'Другое', icon: '📤', type: 'expense', isDefault: true },
-  ];
-}
+export const ADJUST_CATEGORY_ID = "cat-adjust";
+export const DEBT_CATEGORY_ID = "cat-debt";
 
-const defaultSettings: AppSettings = {
-  theme: 'light',
+export const FLAG_LABELS: Record<TransactionFlag, string> = {
+  mandatory: "Обязательная",
+  spontaneous: "Спонтанная",
+  planned: "Запланированная",
+  regular: "Регулярная",
 };
 
-function getCurrentMonthKey(): string {
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: ADJUST_CATEGORY_ID, name: "Корректировка", icon: "⚖️", type: "income", isDefault: true, isSpecial: true },
+  { id: DEBT_CATEGORY_ID, name: "Долги", icon: "💸", type: "expense", isDefault: true, isSpecial: true },
+  { id: "cat-salary", name: "Зарплата", icon: "💼", type: "income", isDefault: true },
+  { id: "cat-side", name: "Подработка", icon: "💻", type: "income", isDefault: true },
+  { id: "cat-gift-in", name: "Подарки", icon: "🎁", type: "income", isDefault: true },
+  { id: "cat-interest", name: "Проценты", icon: "🏦", type: "income", isDefault: true },
+  { id: "cat-other-in", name: "Прочее", icon: "✨", type: "income", isDefault: true },
+  { id: "cat-food", name: "Продукты", icon: "🛒", type: "expense", isDefault: true },
+  { id: "cat-cafe", name: "Кафе", icon: "☕", type: "expense", isDefault: true },
+  { id: "cat-transport", name: "Транспорт", icon: "🚌", type: "expense", isDefault: true },
+  { id: "cat-home", name: "Жильё", icon: "🏠", type: "expense", isDefault: true },
+  { id: "cat-health", name: "Здоровье", icon: "💊", type: "expense", isDefault: true },
+  { id: "cat-fun", name: "Развлечения", icon: "🎬", type: "expense", isDefault: true },
+  { id: "cat-clothes", name: "Одежда", icon: "👕", type: "expense", isDefault: true },
+  { id: "cat-subs", name: "Подписки", icon: "📱", type: "expense", isDefault: true },
+  { id: "cat-other-out", name: "Прочее", icon: "📦", type: "expense", isDefault: true },
+];
+
+function defaultData(): StoredData {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-interface StoredData {
-  transactions: Transaction[];
-  categories: Category[];
-  settings: AppSettings;
-  monthlyReports: MonthlyReport[];
-  lastCheckedMonth: string;
-  debts: Debt[];
-}
-
-function loadFromStorage(): StoredData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        transactions: parsed.transactions || [],
-        categories: parsed.categories || createDefaultCategories(),
-        settings: { ...defaultSettings, ...parsed.settings },
-        monthlyReports: parsed.monthlyReports || [],
-        lastCheckedMonth: parsed.lastCheckedMonth || getCurrentMonthKey(),
-        debts: parsed.debts || [],
-      };
-    }
-  } catch (e) {
-    console.error('Failed to load from storage', e);
-  }
   return {
     transactions: [],
-    categories: createDefaultCategories(),
-    settings: defaultSettings,
+    categories: DEFAULT_CATEGORIES,
+    settings: { theme: "light" },
     monthlyReports: [],
-    lastCheckedMonth: getCurrentMonthKey(),
+    lastCheckedMonth: monthKeyOf(now.getFullYear(), now.getMonth()),
     debts: [],
   };
 }
 
-function saveToStorage(data: StoredData) {
+function loadData(): StoredData {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error('Failed to save to storage', e);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultData();
+    const parsed = JSON.parse(raw) as Partial<StoredData>;
+    const base = defaultData();
+    return {
+      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+      categories:
+        Array.isArray(parsed.categories) && parsed.categories.length
+          ? parsed.categories
+          : base.categories,
+      settings: { theme: parsed.settings?.theme === "dark" ? "dark" : "light" },
+      monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
+      lastCheckedMonth: parsed.lastCheckedMonth || base.lastCheckedMonth,
+      debts: Array.isArray(parsed.debts) ? parsed.debts : [],
+    };
+  } catch {
+    return defaultData();
   }
 }
 
-export function useStore() {
-  const [initialData] = useState(() => loadFromStorage());
-  const [transactions, setTransactions] = useState<Transaction[]>(initialData.transactions);
-  const [categories, setCategories] = useState<Category[]>(initialData.categories);
-  const [settings, setSettings] = useState<AppSettings>(initialData.settings);
-  const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>(initialData.monthlyReports);
-  const [lastCheckedMonth, setLastCheckedMonth] = useState<string>(initialData.lastCheckedMonth);
-  const monthCheckDone = useRef(false);
+/* ---------- derived helpers ---------- */
 
-  const [debts, setDebts] = useState<Debt[]>(initialData.debts);
+export function getBalance(transactions: Transaction[]): number {
+  return transactions.reduce(
+    (acc, t) => acc + (t.type === "income" ? t.amount : -t.amount),
+    0
+  );
+}
 
-  // Save to storage
-  useEffect(() => {
-    saveToStorage({ transactions, categories, settings, monthlyReports, lastCheckedMonth, debts });
-  }, [transactions, categories, settings, monthlyReports, lastCheckedMonth, debts]);
+export function getTransactionsOfMonth(
+  transactions: Transaction[],
+  year: number,
+  month: number
+): Transaction[] {
+  return transactions.filter((t) => {
+    const d = new Date(t.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+}
 
-  // Apply theme
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
-  }, [settings.theme]);
+export function getMonthStats(transactions: Transaction[], year: number, month: number) {
+  const list = getTransactionsOfMonth(transactions, year, month);
+  let income = 0;
+  let expense = 0;
+  for (const t of list) {
+    if (t.type === "income") income += t.amount;
+    else expense += t.amount;
+  }
+  return { list, income, expense, net: income - expense };
+}
 
-  // Check for month change and create report + carryover
-  useEffect(() => {
-    if (monthCheckDone.current) return;
-    monthCheckDone.current = true;
-
-    const currentMonthKey = getCurrentMonthKey();
-    
-    if (lastCheckedMonth && lastCheckedMonth !== currentMonthKey) {
-      // Month has changed! Create report for the previous month
-      const [prevYearStr, prevMonthStr] = lastCheckedMonth.split('-');
-      const prevYear = parseInt(prevYearStr);
-      const prevMonth = parseInt(prevMonthStr) - 1; // Convert to 0-indexed
-
-      // Get transactions for the previous month
-      const prevMonthTx = transactions.filter(t => {
-        const d = new Date(t.date);
-        return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
-      });
-
-      // Calculate totals
-      const totalIncome = prevMonthTx
-        .filter(t => t.type === 'income')
-        .reduce((s, t) => s + t.amount, 0);
-      const totalExpenses = prevMonthTx
-        .filter(t => t.type === 'expense')
-        .reduce((s, t) => s + t.amount, 0);
-
-      // Find previous report to get carryover chain
-      const prevReports = monthlyReports.filter(r => {
-        const reportDate = new Date(r.year, r.month);
-        const prevDate = new Date(prevYear, prevMonth);
-        return reportDate < prevDate;
-      }).sort((a, b) => {
-        const aDate = new Date(a.year, a.month);
-        const bDate = new Date(b.year, b.month);
-        return bDate.getTime() - aDate.getTime();
-      });
-
-      const carryoverFromPrevious = prevReports.length > 0 ? prevReports[0].balance : 0;
-      const balance = carryoverFromPrevious + totalIncome - totalExpenses;
-
-      // Calculate category breakdown
-      const categoryMap = new Map<string, { total: number; type: TransactionType }>();
-      for (const tx of prevMonthTx) {
-        const existing = categoryMap.get(tx.categoryId);
-        if (existing) {
-          existing.total += tx.amount;
-        } else {
-          categoryMap.set(tx.categoryId, { total: tx.amount, type: tx.type });
-        }
-      }
-
-      const categoryBreakdown = Array.from(categoryMap.entries()).map(([catId, data]) => {
-        const cat = categories.find(c => c.id === catId);
-        return {
-          categoryId: catId,
-          categoryName: cat?.name || 'Без категории',
-          categoryIcon: cat?.icon || '📄',
-          type: data.type,
-          total: data.total,
-        };
-      });
-
-      // Calculate flag breakdown
-      const flagMap = new Map<TransactionFlag, number>();
-      for (const tx of prevMonthTx) {
-        flagMap.set(tx.flag, (flagMap.get(tx.flag) || 0) + tx.amount);
-      }
-      const flagBreakdown = Array.from(flagMap.entries()).map(([flag, total]) => ({ flag, total }));
-
-      // Create the report
-      const newReport: MonthlyReport = {
-        id: uuidv4(),
-        month: prevMonth,
-        year: prevYear,
-        totalIncome,
-        totalExpenses,
-        balance,
-        carryoverFromPrevious,
-        closedAt: new Date().toISOString(),
-        categoryBreakdown,
-        flagBreakdown,
-      };
-
-      setMonthlyReports(prev => [newReport, ...prev]);
-
-      // No carryover transaction created — balance is already correct
-      // as the sum of all transactions. The carryover is shown visually
-      // from the report data, not as a fake income transaction.
-
-      setLastCheckedMonth(currentMonthKey);
+/** Остаток на начало месяца (сумма всех операций до его начала) */
+export function getCarryover(transactions: Transaction[], year: number, month: number): number {
+  const start = new Date(year, month, 1).getTime();
+  return transactions.reduce((acc, t) => {
+    if (new Date(t.date).getTime() < start) {
+      return acc + (t.type === "income" ? t.amount : -t.amount);
     }
-  }, [lastCheckedMonth, transactions, categories, monthlyReports]);
+    return acc;
+  }, 0);
+}
 
-  const addTransaction = useCallback((tx: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = {
-      ...tx,
-      id: uuidv4(),
-      createdAt: new Date().toISOString(),
-    };
-    setTransactions(prev => [newTx, ...prev]);
-  }, []);
+/** Серия баланса на конец каждого из последних N дней */
+export function getBalanceSeries(transactions: Transaction[], days = 30): number[] {
+  const now = new Date();
+  const nets = new Array<number>(days).fill(0);
+  for (const t of transactions) {
+    const d = new Date(t.date);
+    const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const diff = Math.round((todayStart - startOfDay) / 86400000);
+    if (diff >= 0 && diff < days) {
+      nets[days - 1 - diff] += t.type === "income" ? t.amount : -t.amount;
+    }
+  }
+  const total = getBalance(transactions);
+  const series = new Array<number>(days);
+  series[days - 1] = total;
+  for (let i = days - 2; i >= 0; i--) {
+    series[i] = series[i + 1] - nets[i + 1];
+  }
+  return series;
+}
 
-  const updateTransaction = useCallback((id: string, updates: Partial<Omit<Transaction, 'id' | 'createdAt'>>) => {
-    setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-  }, []);
+export interface Reminder {
+  tx: Transaction;
+  dueDate: Date;
+  daysUntil: number;
+  level: "green" | "yellow" | "orange" | "red";
+  progress: number;
+}
 
-  // Adjust balance to a real-world value.
-  // Creates a single correcting transaction for the difference.
-  const adjustBalance = useCallback((actualBalance: number, note?: string) => {
-    setTransactions(prev => {
-      const currentBalance = prev.reduce(
-        (sum, t) => sum + (t.type === 'income' ? t.amount : -t.amount),
-        0
-      );
-      const diff = Math.round((actualBalance - currentBalance) * 100) / 100;
-      if (diff === 0) return prev;
-
-      const isIncome = diff > 0;
-      const tx: Transaction = {
-        id: uuidv4(),
-        type: isIncome ? 'income' : 'expense',
-        amount: Math.abs(diff),
-        categoryId: isIncome ? 'cat-adjust-in' : 'cat-adjust-out',
-        comment: note?.trim() || 'Корректировка баланса',
-        date: new Date().toISOString(),
-        flag: 'planned',
-        createdAt: new Date().toISOString(),
-      };
-      return [tx, ...prev];
+export function computeReminders(transactions: Transaction[]): Reminder[] {
+  const now = new Date();
+  const templates = transactions.filter(
+    (t) =>
+      t.flag === "regular" &&
+      t.recurrencePeriod === "monthly" &&
+      typeof t.dueDay === "number" &&
+      t.type === "expense"
+  );
+  const result: Reminder[] = [];
+  for (const tx of templates) {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    let dueDate = new Date(y, m, Math.min(tx.dueDay!, daysInMonth(y, m)));
+    // если платёж в этом месяце уже подтверждён — смотрим следующий цикл
+    if (tx.lastPaidAt) {
+      const paid = new Date(tx.lastPaidAt);
+      if (paid.getFullYear() === y && paid.getMonth() === m) {
+        const nm = m === 11 ? 0 : m + 1;
+        const ny = m === 11 ? y + 1 : y;
+        dueDate = new Date(ny, nm, Math.min(tx.dueDay!, daysInMonth(ny, nm)));
+      }
+    }
+    const todayStart = new Date(y, m, now.getDate()).getTime();
+    const daysUntil = Math.round((dueDate.getTime() - todayStart) / 86400000);
+    if (daysUntil > 10) continue;
+    const level =
+      daysUntil < 0 ? "red" : daysUntil <= 2 ? "orange" : daysUntil <= 5 ? "yellow" : "green";
+    result.push({
+      tx,
+      dueDate,
+      daysUntil,
+      level,
+      progress: Math.min(1, Math.max(0, (10 - daysUntil) / 10)),
     });
+  }
+  return result.sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
+/** Топ частых комбинаций категория+сумма из истории расходов */
+export function getQuickSpends(transactions: Transaction[], limit = 6) {
+  const map = new Map<string, { categoryId: string; amount: number; count: number; last: number }>();
+  for (const t of transactions) {
+    if (t.type !== "expense" || t.debtId) continue;
+    const key = `${t.categoryId}|${t.amount}`;
+    const entry = map.get(key);
+    const time = new Date(t.date).getTime();
+    if (entry) {
+      entry.count += 1;
+      entry.last = Math.max(entry.last, time);
+    } else {
+      map.set(key, { categoryId: t.categoryId, amount: t.amount, count: 1, last: time });
+    }
+  }
+  return [...map.values()]
+    .sort((a, b) => b.count - a.count || b.last - a.last)
+    .filter((e) => e.count >= 2)
+    .slice(0, limit);
+}
+
+function buildReport(
+  transactions: Transaction[],
+  categories: Category[],
+  year: number,
+  month: number
+): MonthlyReport {
+  const { list, income, expense, net } = getMonthStats(transactions, year, month);
+  // Ключ — «категория + тип», чтобы служебная категория долгов
+  // не смешивала взятые и выданные суммы в одну строку
+  const catMap = new Map<string, { categoryId: string; type: TransactionType; total: number }>();
+  const flagMap = new Map<TransactionFlag, number>();
+  for (const t of list) {
+    const key = `${t.categoryId}|${t.type}`;
+    const entry = catMap.get(key);
+    if (entry) entry.total += t.amount;
+    else catMap.set(key, { categoryId: t.categoryId, type: t.type, total: t.amount });
+    flagMap.set(t.flag, (flagMap.get(t.flag) || 0) + t.amount);
+  }
+  const findCat = (id: string) => categories.find((c) => c.id === id);
+  return {
+    id: uuid(),
+    month,
+    year,
+    totalIncome: income,
+    totalExpenses: expense,
+    balance: net,
+    carryoverFromPrevious: getCarryover(transactions, year, month),
+    closedAt: new Date().toISOString(),
+    categoryBreakdown: [...catMap.values()]
+      .map(({ categoryId, type, total }) => {
+        const cat = findCat(categoryId);
+        return {
+          categoryId,
+          categoryName: cat?.name || "Без категории",
+          categoryIcon: cat?.icon || "🏷️",
+          type,
+          total,
+        };
+      })
+      .sort((a, b) => b.total - a.total),
+    flagBreakdown: [...flagMap.entries()].map(([flag, total]) => ({ flag, total })),
+  };
+}
+
+/* ---------- store hook ---------- */
+
+export function useStore() {
+  const [data, setData] = useState<StoredData>(loadData);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      /* переполнение хранилища — игнорируем */
+    }
+  }, [data]);
+
+  // Автозакрытие месяца при смене календарного месяца
+  useEffect(() => {
+    setData((prev) => {
+      const now = new Date();
+      const currentKey = monthKeyOf(now.getFullYear(), now.getMonth());
+      if (!prev.lastCheckedMonth || prev.lastCheckedMonth >= currentKey) return prev;
+      let [y, m] = prev.lastCheckedMonth.split("-").map(Number);
+      m -= 1; // месяц 0-11
+      const reports = [...prev.monthlyReports];
+      let changed = false;
+      while (monthKeyOf(y, m) < currentKey) {
+        const exists = reports.some((r) => r.year === y && r.month === m);
+        const hasTx = getTransactionsOfMonth(prev.transactions, y, m).length > 0;
+        if (!exists && hasTx) {
+          reports.push(buildReport(prev.transactions, prev.categories, y, m));
+          changed = true;
+        }
+        m += 1;
+        if (m > 11) { m = 0; y += 1; }
+      }
+      return {
+        ...prev,
+        monthlyReports: changed ? reports : prev.monthlyReports,
+        lastCheckedMonth: currentKey,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* --- transactions --- */
+
+  const addTransaction = useCallback(
+    (tx: Omit<Transaction, "id" | "createdAt">) => {
+      const full: Transaction = { ...tx, id: uuid(), createdAt: new Date().toISOString() };
+      setData((prev) => ({ ...prev, transactions: [...prev.transactions, full] }));
+      return full;
+    },
+    []
+  );
+
+  const updateTransaction = useCallback((id: string, updates: Partial<Transaction>) => {
+    setData((prev) => ({
+      ...prev,
+      transactions: prev.transactions.map((t) => (t.id === id ? { ...t, ...updates, id } : t)),
+    }));
   }, []);
 
   const deleteTransaction = useCallback((id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
+    setData((prev) => ({
+      ...prev,
+      transactions: prev.transactions.filter((t) => t.id !== id),
+    }));
   }, []);
 
-  const addCategory = useCallback((cat: Omit<Category, 'id'>) => {
-    const newCat: Category = { ...cat, id: uuidv4() };
-    setCategories(prev => [...prev, newCat]);
+  const adjustBalance = useCallback((actualBalance: number, note?: string) => {
+    setData((prev) => {
+      const current = getBalance(prev.transactions);
+      const diff = Math.round((actualBalance - current) * 100) / 100;
+      if (diff === 0) return prev;
+      const tx: Transaction = {
+        id: uuid(),
+        type: diff > 0 ? "income" : "expense",
+        amount: Math.abs(diff),
+        categoryId: ADJUST_CATEGORY_ID,
+        comment: note?.trim() || "Корректировка баланса",
+        date: new Date().toISOString(),
+        flag: "mandatory",
+        createdAt: new Date().toISOString(),
+      };
+      return { ...prev, transactions: [...prev.transactions, tx] };
+    });
+  }, []);
+
+  /** Подтверждение оплаты регулярного платежа из напоминания */
+  const payReminder = useCallback((templateId: string) => {
+    setData((prev) => {
+      const template = prev.transactions.find((t) => t.id === templateId);
+      if (!template) return prev;
+      const now = new Date().toISOString();
+      const payment: Transaction = {
+        id: uuid(),
+        type: "expense",
+        amount: template.amount,
+        categoryId: template.categoryId,
+        comment: template.comment,
+        date: now,
+        flag: "regular",
+        recurrencePeriod: template.recurrencePeriod,
+        createdAt: now,
+      };
+      return {
+        ...prev,
+        transactions: prev.transactions
+          .map((t) => (t.id === templateId ? { ...t, lastPaidAt: now } : t))
+          .concat(payment),
+      };
+    });
+  }, []);
+
+  /* --- categories --- */
+
+  const addCategory = useCallback((cat: Omit<Category, "id">) => {
+    const full: Category = { ...cat, id: uuid() };
+    setData((prev) => ({ ...prev, categories: [...prev.categories, full] }));
+    return full;
   }, []);
 
   const updateCategory = useCallback((id: string, updates: Partial<Category>) => {
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    setData((prev) => ({
+      ...prev,
+      categories: prev.categories.map((c) => (c.id === id ? { ...c, ...updates, id } : c)),
+    }));
   }, []);
 
   const deleteCategory = useCallback((id: string) => {
-    setCategories(prev => prev.filter(c => c.id !== id));
+    setData((prev) => ({
+      ...prev,
+      categories: prev.categories.filter((c) => c.id !== id),
+    }));
   }, []);
 
-  const setTheme = useCallback((theme: ThemeMode) => {
-    setSettings(prev => ({ ...prev, theme }));
-  }, []);
-
-  const resetAllData = useCallback(() => {
-    setTransactions([]);
-    setCategories(createDefaultCategories());
-    setSettings(defaultSettings);
-    setMonthlyReports([]);
-    setLastCheckedMonth(getCurrentMonthKey());
-    setDebts([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
-
-  const getCategoryById = useCallback((id: string): Category | undefined => {
-    return categories.find(c => c.id === id);
-  }, [categories]);
-
-  const getCategoriesByType = useCallback((type: TransactionType): Category[] => {
-    return categories.filter(c => c.type === type);
-  }, [categories]);
-
-  // Manual month close for testing
-  const closeCurrentMonth = useCallback(() => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    // Check if report already exists for this month
-    const existingReport = monthlyReports.find(r => r.month === currentMonth && r.year === currentYear);
-    if (existingReport) return;
-
-    const currentMonthTx = transactions.filter(t => {
-      const d = new Date(t.date);
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    });
-
-    const totalIncome = currentMonthTx
-      .filter(t => t.type === 'income')
-      .reduce((s, t) => s + t.amount, 0);
-    const totalExpenses = currentMonthTx
-      .filter(t => t.type === 'expense')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const lastReport = monthlyReports.length > 0 ? monthlyReports[0] : null;
-    const carryoverFromPrevious = lastReport ? lastReport.balance : 0;
-    const balance = carryoverFromPrevious + totalIncome - totalExpenses;
-
-    const categoryMap = new Map<string, { total: number; type: TransactionType }>();
-    for (const tx of currentMonthTx) {
-      const existing = categoryMap.get(tx.categoryId);
-      if (existing) {
-        existing.total += tx.amount;
-      } else {
-        categoryMap.set(tx.categoryId, { total: tx.amount, type: tx.type });
+  /** Перемещение категории вверх/вниз внутри своей группы (доходы/расходы) */
+  const moveCategory = useCallback((id: string, direction: -1 | 1) => {
+    setData((prev) => {
+      const cats = [...prev.categories];
+      const idx = cats.findIndex((c) => c.id === id);
+      if (idx === -1 || cats[idx].isSpecial) return prev;
+      const type = cats[idx].type;
+      let j = idx + direction;
+      while (j >= 0 && j < cats.length && (cats[j].type !== type || cats[j].isSpecial)) {
+        j += direction;
       }
-    }
-
-    const categoryBreakdown = Array.from(categoryMap.entries()).map(([catId, data]) => {
-      const cat = categories.find(c => c.id === catId);
-      return {
-        categoryId: catId,
-        categoryName: cat?.name || 'Без категории',
-        categoryIcon: cat?.icon || '📄',
-        type: data.type,
-        total: data.total,
-      };
+      if (j < 0 || j >= cats.length) return prev;
+      [cats[idx], cats[j]] = [cats[j], cats[idx]];
+      return { ...prev, categories: cats };
     });
-
-    const flagMap = new Map<TransactionFlag, number>();
-    for (const tx of currentMonthTx) {
-      flagMap.set(tx.flag, (flagMap.get(tx.flag) || 0) + tx.amount);
-    }
-    const flagBreakdown = Array.from(flagMap.entries()).map(([flag, total]) => ({ flag, total }));
-
-    const newReport: MonthlyReport = {
-      id: uuidv4(),
-      month: currentMonth,
-      year: currentYear,
-      totalIncome,
-      totalExpenses,
-      balance,
-      carryoverFromPrevious,
-      closedAt: new Date().toISOString(),
-      categoryBreakdown,
-      flagBreakdown,
-    };
-
-    setMonthlyReports(prev => [newReport, ...prev]);
-  }, [transactions, categories, monthlyReports]);
-
-  // Debt management — creates transactions to move balance
-  const addDebt = useCallback((debt: Omit<Debt, 'id' | 'createdAt' | 'isPaid'>) => {
-    const debtId = uuidv4();
-    const newDebt: Debt = {
-      ...debt,
-      id: debtId,
-      createdAt: new Date().toISOString(),
-      isPaid: false,
-    };
-    setDebts(prev => [newDebt, ...prev]);
-
-    // Create transaction:
-    // "owed_to_me" (I gave money) → expense (balance decreases)
-    // "i_owe" (I received money) → income (balance increases)
-    const txType = debt.direction === 'owed_to_me' ? 'expense' : 'income';
-    const catId = debt.direction === 'owed_to_me' ? 'cat-debt-give' : 'cat-debt-return';
-    const comment = debt.direction === 'owed_to_me'
-      ? `Дал в долг: ${debt.personName}`
-      : `Взял в долг: ${debt.personName}`;
-
-    const tx: Transaction = {
-      id: `debt-tx-${debtId}`,
-      type: txType,
-      amount: debt.amount,
-      categoryId: catId,
-      comment: debt.comment ? `${comment} — ${debt.comment}` : comment,
-      date: new Date().toISOString(),
-      flag: 'planned',
-      createdAt: new Date().toISOString(),
-    };
-    setTransactions(prev => [tx, ...prev]);
   }, []);
+
+  /* --- debts --- */
+
+  const addDebt = useCallback(
+    (debt: { direction: DebtDirection; personName: string; amount: number; comment: string }) => {
+      const now = new Date().toISOString();
+      const id = uuid();
+      const full: Debt = { ...debt, id, createdAt: now, isPaid: false };
+      const tx: Transaction = {
+        id: uuid(),
+        type: debt.direction === "owed_to_me" ? "expense" : "income",
+        amount: debt.amount,
+        categoryId: DEBT_CATEGORY_ID,
+        comment:
+          debt.direction === "owed_to_me"
+            ? `Дал в долг: ${debt.personName}`
+            : `Взял в долг: ${debt.personName}`,
+        date: now,
+        flag: "mandatory",
+        createdAt: now,
+        debtId: id,
+        debtKind: "open",
+      };
+      setData((prev) => ({
+        ...prev,
+        debts: [...prev.debts, full],
+        transactions: [...prev.transactions, tx],
+      }));
+      return full;
+    },
+    []
+  );
 
   const toggleDebtPaid = useCallback((id: string) => {
-    setDebts(prev => {
-      const debt = prev.find(d => d.id === id);
+    setData((prev) => {
+      const debt = prev.debts.find((d) => d.id === id);
       if (!debt) return prev;
-
-      const wasPaid = debt.isPaid;
-      const nowPaid = !wasPaid;
-
-      if (nowPaid) {
-        // Debt settled → reverse transaction
-        // "owed_to_me" was expense → now income (money returned)
-        // "i_owe" was income → now expense (money paid back)
-        const txType = debt.direction === 'owed_to_me' ? 'income' : 'expense';
-        const catId = debt.direction === 'owed_to_me' ? 'cat-debt-return' : 'cat-debt-give';
-        const comment = debt.direction === 'owed_to_me'
-          ? `Вернул долг: ${debt.personName}`
-          : `Отдал долг: ${debt.personName}`;
-
+      if (!debt.isPaid) {
+        const now = new Date().toISOString();
         const tx: Transaction = {
-          id: `debt-paid-${id}-${Date.now()}`,
-          type: txType,
+          id: uuid(),
+          type: debt.direction === "owed_to_me" ? "income" : "expense",
           amount: debt.amount,
-          categoryId: catId,
-          comment,
-          date: new Date().toISOString(),
-          flag: 'planned',
-          createdAt: new Date().toISOString(),
+          categoryId: DEBT_CATEGORY_ID,
+          comment:
+            debt.direction === "owed_to_me"
+              ? `Вернули долг: ${debt.personName}`
+              : `Вернул долг: ${debt.personName}`,
+          date: now,
+          flag: "mandatory",
+          createdAt: now,
+          debtId: id,
+          debtKind: "repay",
         };
-        setTransactions(p => [tx, ...p]);
-      } else {
-        // Unpaid — remove the paid-back transaction
-        setTransactions(p => p.filter(t => !t.id.startsWith(`debt-paid-${id}-`)));
+        return {
+          ...prev,
+          debts: prev.debts.map((d) => (d.id === id ? { ...d, isPaid: true, paidAt: now } : d)),
+          transactions: [...prev.transactions, tx],
+        };
       }
-
-      return prev.map(d =>
-        d.id === id
-          ? { ...d, isPaid: nowPaid, paidAt: nowPaid ? new Date().toISOString() : undefined }
-          : d
-      );
+      return {
+        ...prev,
+        debts: prev.debts.map((d) =>
+          d.id === id ? { ...d, isPaid: false, paidAt: undefined } : d
+        ),
+        transactions: prev.transactions.filter(
+          (t) => !(t.debtId === id && t.debtKind === "repay")
+        ),
+      };
     });
   }, []);
 
   const deleteDebt = useCallback((id: string) => {
-    // Remove debt and its transactions
-    setDebts(prev => prev.filter(d => d.id !== id));
-    setTransactions(prev => prev.filter(t =>
-      t.id !== `debt-tx-${id}` && !t.id.startsWith(`debt-paid-${id}-`)
-    ));
+    setData((prev) => ({
+      ...prev,
+      debts: prev.debts.filter((d) => d.id !== id),
+      transactions: prev.transactions.filter((t) => t.debtId !== id),
+    }));
   }, []);
 
+  /* --- misc --- */
+
+  const setTheme = useCallback((theme: ThemeMode) => {
+    setData((prev) => ({ ...prev, settings: { ...prev.settings, theme } }));
+  }, []);
+
+  const closeCurrentMonth = useCallback(() => {
+    setData((prev) => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      if (getTransactionsOfMonth(prev.transactions, y, m).length === 0) return prev;
+      const report = buildReport(prev.transactions, prev.categories, y, m);
+      return {
+        ...prev,
+        monthlyReports: [...prev.monthlyReports.filter((r) => !(r.year === y && r.month === m)), report],
+      };
+    });
+  }, []);
+
+  const resetAllData = useCallback(() => {
+    setData((prev) => {
+      const fresh = defaultData();
+      return { ...fresh, settings: { theme: prev.settings.theme } };
+    });
+  }, []);
+
+  const importData = useCallback((json: string): boolean => {
+    try {
+      const parsed = JSON.parse(json) as Partial<StoredData>;
+      if (!Array.isArray(parsed.transactions) || !Array.isArray(parsed.categories)) return false;
+      const base = defaultData();
+      setData({
+        transactions: parsed.transactions,
+        categories: parsed.categories.length ? parsed.categories : base.categories,
+        settings: { theme: parsed.settings?.theme === "dark" ? "dark" : "light" },
+        monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
+        lastCheckedMonth: parsed.lastCheckedMonth || base.lastCheckedMonth,
+        debts: Array.isArray(parsed.debts) ? parsed.debts : [],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const exportData = useCallback((): string => JSON.stringify(data, null, 2), [data]);
+
+  const getCategoryById = useCallback(
+    (id: string) => data.categories.find((c) => c.id === id),
+    [data.categories]
+  );
+
+  const getCategoriesByType = useCallback(
+    (type: TransactionType) =>
+      data.categories.filter((c) => c.type === type && !c.isSpecial),
+    [data.categories]
+  );
+
+  const reminders = useMemo(() => computeReminders(data.transactions), [data.transactions]);
+  const balance = useMemo(() => getBalance(data.transactions), [data.transactions]);
+
   return {
-    transactions,
-    categories,
-    settings,
-    monthlyReports,
-    debts,
+    transactions: data.transactions,
+    categories: data.categories,
+    settings: data.settings,
+    monthlyReports: data.monthlyReports,
+    debts: data.debts,
+    reminders,
+    balance,
     addTransaction,
     updateTransaction,
     deleteTransaction,
     adjustBalance,
+    payReminder,
     addCategory,
     updateCategory,
     deleteCategory,
-    setTheme,
-    resetAllData,
+    moveCategory,
     getCategoryById,
     getCategoriesByType,
-    closeCurrentMonth,
     addDebt,
     toggleDebtPaid,
     deleteDebt,
+    setTheme,
+    closeCurrentMonth,
+    resetAllData,
+    importData,
+    exportData,
   };
 }
 
-
+export type Store = ReturnType<typeof useStore>;

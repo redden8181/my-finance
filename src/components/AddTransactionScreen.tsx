@@ -1,538 +1,488 @@
-import { useState, useMemo } from 'react';
-import { useAppStore } from '../store/StoreContext';
-import { X, Check, ChevronDown, Zap, Calculator } from 'lucide-react';
-import { formatCurrency } from '../utils/format';
-import NumberPad from './NumberPad';
-import type { TransactionType, TransactionFlag, RecurrencePeriod } from '../types';
+import { useMemo, useState } from "react";
+import { CalendarDays, Check, Minus, Plus, Sparkles, X } from "lucide-react";
+import { useAppStore } from "../store/StoreContext";
+import { getQuickSpends } from "../store/useStore";
+import type {
+  RecurrencePeriod,
+  Transaction,
+  TransactionFlag,
+  TransactionType,
+} from "../types";
+import {
+  evaluateExpression,
+  formatMoney,
+  hasOperator,
+  toISODate,
+} from "../utils/format";
+import { NumberPad } from "./NumberPad";
 
-// Try to evaluate simple math expression safely
-function tryEvaluateExpression(expr: string): number | null {
-  // Only allow digits, basic operators, dots, parentheses
-  if (!/^[\d+\-*/().\s]+$/.test(expr)) return null;
-  try {
-    // eslint-disable-next-line no-new-func
-    const result = Function('"use strict"; return (' + expr + ')')();
-    if (typeof result === 'number' && isFinite(result)) {
-      return Math.max(0, Math.round(result * 100) / 100);
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
+const FLAGS: { id: TransactionFlag; label: string }[] = [
+  { id: "mandatory", label: "Обязательная" },
+  { id: "spontaneous", label: "Спонтанная" },
+  { id: "planned", label: "Запланированная" },
+  { id: "regular", label: "Регулярная" },
+];
 
-interface Props {
+const PERIODS: { id: RecurrencePeriod; label: string }[] = [
+  { id: "daily", label: "Ежедневно" },
+  { id: "weekly", label: "Еженедельно" },
+  { id: "monthly", label: "Ежемесячно" },
+  { id: "yearly", label: "Ежегодно" },
+];
+
+export function AddTransactionScreen({
+  initial,
+  onClose,
+}: {
+  initial?: Transaction | null;
   onClose: () => void;
-}
+}) {
+  const { addTransaction, updateTransaction, addCategory, getCategoriesByType, transactions } =
+    useAppStore();
 
-const flagLabels: Record<TransactionFlag, string> = {
-  mandatory: 'Обязательная',
-  spontaneous: 'Спонтанная',
-  planned: 'Запланированная',
-  regular: 'Регулярная',
-};
+  const editing = Boolean(initial);
+  const [type, setType] = useState<TransactionType>(initial?.type || "expense");
+  const [expr, setExpr] = useState<string>(initial ? String(initial.amount) : "");
+  const [categoryId, setCategoryId] = useState<string>(initial?.categoryId || "");
+  const [comment, setComment] = useState(initial?.comment || "");
+  const [flag, setFlag] = useState<TransactionFlag>(initial?.flag || "planned");
+  const [period, setPeriod] = useState<RecurrencePeriod>(initial?.recurrencePeriod || "monthly");
+  const [dueDay, setDueDay] = useState<number>(initial?.dueDay || 15);
+  const [dateVal, setDateVal] = useState<string>(
+    initial ? toISODate(new Date(initial.date)) : toISODate(new Date())
+  );
+  const [creatingCat, setCreatingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState("");
+  const [padVisible, setPadVisible] = useState(true);
 
-const flagIcons: Record<TransactionFlag, string> = {
-  mandatory: '⚠️',
-  spontaneous: '⚡',
-  planned: '📋',
-  regular: '🔄',
-};
+  const categories = getCategoriesByType(type);
+  const result = useMemo(() => evaluateExpression(expr), [expr]);
+  const valid = result !== null && result > 0 && Boolean(categoryId);
 
-const periodLabels: Record<RecurrencePeriod, string> = {
-  daily: 'Ежедневно',
-  weekly: 'Еженедельно',
-  monthly: 'Ежемесячно',
-  yearly: 'Ежегодно',
-};
+  const quickSpends = useMemo(
+    () => (editing || type !== "expense" ? [] : getQuickSpends(transactions, 6)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [transactions, type, editing]
+  );
 
-interface QuickAction {
-  categoryId: string;
-  categoryIcon: string;
-  categoryName: string;
-  amount: number;
-  count: number;
-}
-
-export default function AddTransactionScreen({ onClose }: Props) {
-  const { addTransaction, addCategory, getCategoriesByType, transactions, getCategoryById } = useAppStore();
-
-  const [type, setType] = useState<TransactionType>('expense');
-  const [amount, setAmount] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [comment, setComment] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [flag, setFlag] = useState<TransactionFlag>('planned');
-  const [recurrencePeriod, setRecurrencePeriod] = useState<RecurrencePeriod>('monthly');
-  const [showCategories, setShowCategories] = useState(false);
-  const [evaluatedAmount, setEvaluatedAmount] = useState<number | null>(null);
-  const [showNumberPad, setShowNumberPad] = useState(false);
-  const [enableReminder, setEnableReminder] = useState(false);
-  const [dueDay, setDueDay] = useState<number>(new Date().getDate());
-  const [showAddCat, setShowAddCat] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [newCatIcon, setNewCatIcon] = useState('📁');
-
-  const categories = useMemo(() => getCategoriesByType(type), [type, getCategoriesByType]);
-  const selectedCategory = categories.find(c => c.id === categoryId);
-
-  // Calculate quick actions from transaction history
-  const quickActions = useMemo(() => {
-    // Group by category + rounded amount
-    const actionMap = new Map<string, QuickAction>();
-    
-    const recentTx = transactions
-      .filter(t => t.type === type)
-      .slice(0, 100); // Last 100 transactions of this type
-
-    for (const tx of recentTx) {
-      const cat = getCategoryById(tx.categoryId);
-      if (!cat) continue;
-
-      // Round amount to nice numbers for quick actions
-      let roundedAmount = tx.amount;
-      if (tx.amount < 100) {
-        roundedAmount = Math.round(tx.amount / 10) * 10;
-      } else if (tx.amount < 1000) {
-        roundedAmount = Math.round(tx.amount / 50) * 50;
-      } else {
-        roundedAmount = Math.round(tx.amount / 100) * 100;
-      }
-
-      const key = `${tx.categoryId}-${roundedAmount}`;
-      const existing = actionMap.get(key);
-      
-      if (existing) {
-        existing.count++;
-      } else {
-        actionMap.set(key, {
-          categoryId: tx.categoryId,
-          categoryIcon: cat.icon,
-          categoryName: cat.name,
-          amount: roundedAmount,
-          count: 1,
-        });
-      }
-    }
-
-    // Sort by frequency and take top 6
-    return Array.from(actionMap.values())
-      .filter(a => a.count >= 2) // Only show if used at least twice
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-  }, [transactions, type, getCategoryById]);
-
-  const finalAmount = evaluatedAmount !== null && amount ? evaluatedAmount : parseFloat(amount || '0');
-  const canSave = finalAmount > 0 && categoryId;
-
-  const handleSave = () => {
-    if (!canSave) return;
-    addTransaction({
-      type,
-      amount: finalAmount,
-      categoryId,
-      comment,
-      date: new Date(date).toISOString(),
-      flag,
-      recurrencePeriod: flag === 'regular' ? recurrencePeriod : undefined,
-      dueDay:
-        flag === 'regular' && recurrencePeriod === 'monthly' && enableReminder
-          ? dueDay
-          : undefined,
-    });
-    onClose();
+  /** Открыть калькулятор, предварительно убрав системную клавиатуру */
+  const showPad = () => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) el.blur();
+    setPadVisible(true);
   };
 
-  const handleQuickAction = (action: QuickAction) => {
-    addTransaction({
-      type,
-      amount: action.amount,
-      categoryId: action.categoryId,
-      comment: '',
-      date: new Date().toISOString(),
-      flag: 'planned',
+  const handleKey = (key: string) => {
+    setExpr((prev) => {
+      if (key === "backspace") return prev.slice(0, -1);
+      if (["÷", "×", "−", "+"].includes(key)) {
+        if (prev === "") return key === "−" ? "−" : prev;
+        const last = prev.slice(-1);
+        if (["÷", "×", "−", "+"].includes(last)) return prev.slice(0, -1) + key;
+        if (prev.length >= 18) return prev;
+        return prev + key;
+      }
+      if (key === ",") {
+        const parts = prev.split(/[÷×−+]/);
+        if (parts[parts.length - 1].includes(",")) return prev;
+        if (prev === "" || /[÷×−+]/.test(prev.slice(-1))) return prev + "0,";
+        return prev + ",";
+      }
+      if (prev.replace(/[-]/, "").length >= 14) return prev;
+      return prev + key;
     });
+  };
+
+  const switchType = (t: TransactionType) => {
+    setType(t);
+    const cat = getCategoriesByType(t).find((c) => c.id === categoryId);
+    if (!cat) setCategoryId("");
+    setCreatingCat(false);
+  };
+
+  const saveCategory = () => {
+    const icon = [...newCatIcon.trim()][0] || "🏷️";
+    const name = newCatName.trim();
+    if (!name) return;
+    const created = addCategory({ name, icon, type });
+    setCategoryId(created.id);
+    setCreatingCat(false);
+    setNewCatName("");
+    setNewCatIcon("");
+  };
+
+  const save = () => {
+    if (!valid || result === null) return;
+    const now = new Date();
+    const [y, m, d] = dateVal.split("-").map(Number);
+    const date = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+    const payload = {
+      type,
+      amount: result,
+      categoryId,
+      comment: comment.trim(),
+      date: date.toISOString(),
+      flag,
+      recurrencePeriod: flag === "regular" ? period : undefined,
+      dueDay: flag === "regular" && period === "monthly" ? dueDay : undefined,
+    };
+    if (editing && initial) {
+      updateTransaction(initial.id, payload);
+    } else {
+      addTransaction(payload);
+    }
     onClose();
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-gray-50 dark:bg-gray-950 flex flex-col">
-      {/* Header */}
-      <div className="safe-top" />
-      <div className="flex items-center justify-between px-4 pt-1.5 pb-1.5 border-b border-gray-100 dark:border-gray-800">
-        <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
-          <X size={20} />
-        </button>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Новая операция</h2>
+    <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+      {/* header */}
+      <header className="flex items-center gap-3 px-5 pt-safe pb-3">
         <button
-          onClick={handleSave}
-          disabled={!canSave}
-          className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-            canSave
-              ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
-              : 'text-gray-300 dark:text-gray-600'
-          }`}
+          onClick={onClose}
+          className="press flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface"
+          aria-label="Закрыть"
         >
-          <Check size={20} />
+          <X size={19} />
         </button>
+        <h1 className="flex-1 text-center font-display text-[13px] font-semibold tracking-[0.18em] uppercase">
+          {editing ? "Изменить" : "Новая операция"}
+        </h1>
+        <span className="w-10" />
+      </header>
+
+      {/* type switch */}
+      <div className="px-5">
+        <div className="relative grid grid-cols-2 rounded-full border border-line bg-surface p-1">
+          <span
+            className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{
+              transform: type === "income" ? "translateX(100%)" : "translateX(0)",
+              background: type === "income" ? "var(--accent)" : "var(--expense)",
+            }}
+          />
+          {(["expense", "income"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => switchType(t)}
+              className={`relative z-10 h-9.5 rounded-full text-[13px] font-bold transition-colors duration-300 ${
+                type === t ? "text-on-accent" : "text-muted"
+              }`}
+            >
+              {t === "expense" ? "Расход" : "Доход"}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* Type Switcher */}
-        <div className="mx-4 mt-3">
-          <div className="flex bg-gray-100 dark:bg-gray-900 rounded-xl p-1">
-            <button
-              onClick={() => { setType('expense'); setCategoryId(''); }}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                type === 'expense'
-                  ? 'bg-white dark:bg-gray-800 text-red-500 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              Расход
-            </button>
-            <button
-              onClick={() => { setType('income'); setCategoryId(''); }}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                type === 'income'
-                  ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              Доход
-            </button>
-          </div>
-        </div>
+      {/* amount */}
+      <div className="relative z-20 px-5 pt-5 pb-2 text-center">
+        <button
+          onClick={showPad}
+          className="mx-auto block"
+          aria-label="Показать клавиатуру"
+        >
+          <p
+            className={`min-h-13 font-display text-[40px] leading-none font-semibold tracking-tight ${
+              expr ? "text-ink" : "text-muted/40"
+            }`}
+          >
+            {expr || "0"}
+            <span className="ml-1.5 text-[22px] text-muted">₽</span>
+          </p>
+        </button>
+        <p className="mt-1 h-5 text-sm font-bold text-accent-ink tabular-nums">
+          {hasOperator(expr) && result !== null ? `= ${formatMoney(result)}` : ""}
+        </p>
+      </div>
 
-        {/* Quick Actions */}
-        {quickActions.length > 0 && (
-          <div className="mt-4">
-            <div className="flex items-center gap-1.5 px-4 mb-2">
-              <Zap size={12} className="text-amber-500" />
-              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                Быстрые действия
-              </span>
-            </div>
-            <div className="flex gap-2 px-4 overflow-x-auto pb-2 scrollbar-hide">
-              {quickActions.map((action, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleQuickAction(action)}
-                  className="flex-shrink-0 flex items-center gap-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 border border-amber-100 dark:border-amber-900/30 hover:from-amber-100 hover:to-orange-100 dark:hover:from-amber-950/50 dark:hover:to-orange-950/40 transition-all active:scale-95"
-                >
-                  <span className="text-base">{action.categoryIcon}</span>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {formatCurrency(action.amount)}
-                  </span>
-                </button>
-              ))}
+      {/* scrollable form */}
+      <div className="relative flex-1 overflow-hidden">
+        <div className="h-full space-y-5 overflow-y-auto px-5 pt-1 pb-4 no-scrollbar">
+        {/* quick spends */}
+        {quickSpends.length > 0 && (
+          <div>
+            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+              <Sparkles size={12} />
+              Быстрые траты
+            </p>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {quickSpends.map((q, i) => {
+                const cat = categories.find((c) => c.id === q.categoryId);
+                if (!cat) return null;
+                const active = categoryId === q.categoryId && expr === String(q.amount);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setCategoryId(q.categoryId);
+                      setExpr(String(q.amount));
+                    }}
+                    className={`press flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm font-bold ${
+                      active
+                        ? "border-accent bg-accent-soft text-accent-ink"
+                        : "border-line bg-surface text-ink"
+                    }`}
+                  >
+                    <span>{cat.icon}</span>
+                    <span className="tabular-nums">{formatMoney(q.amount)}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Amount */}
-        <div className="mx-4 mt-4">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-              Сумма
-            </label>
-            <button
-              onClick={() => setShowNumberPad(!showNumberPad)}
-              className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            >
-              {showNumberPad ? (
-                <>
-                  <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Ввод
-                </>
-              ) : (
-                <>
-                  <Calculator size={12} />
-                  Калькулятор
-                </>
-              )}
-            </button>
-          </div>
-
-          {showNumberPad ? (
-            <div>
-              <div className="relative min-h-[44px] flex items-center justify-end py-2">
-                <div className="w-full text-3xl font-bold bg-transparent border-none outline-none text-gray-800 dark:text-gray-100 placeholder-gray-200 dark:text-right">
-                  {amount || <span className="text-gray-200 dark:text-gray-700">0</span>}
-                </div>
-                <span className="text-2xl text-gray-300 dark:text-gray-600 font-medium ml-1">
-                  ₽
-                </span>
+        {/* categories */}
+        <div>
+          <p className="mb-2 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+            Категория
+          </p>
+          {creatingCat ? (
+            <div className="space-y-3 rounded-[22px] border border-line bg-surface p-4">
+              <div className="flex gap-2">
+                <input
+                  value={newCatIcon}
+                  onChange={(e) => setNewCatIcon([...e.target.value].slice(-1).join(""))}
+                  onFocus={() => setPadVisible(false)}
+                  placeholder="😀"
+                  className="h-12 w-14 rounded-2xl bg-surface2 text-center text-xl outline-none"
+                />
+                <input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  onFocus={() => setPadVisible(false)}
+                  onKeyDown={(e) => e.key === "Enter" && saveCategory()}
+                  enterKeyHint="done"
+                  placeholder="Название категории"
+                  autoFocus
+                  className="h-12 flex-1 rounded-2xl bg-surface2 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:text-muted"
+                />
               </div>
-              {evaluatedAmount !== null && amount && (
-                <div className="text-xs text-emerald-600 dark:text-emerald-400 mb-2 text-right">
-                  = {formatCurrency(evaluatedAmount)}
-                </div>
-              )}
-              <div className="h-px bg-gray-100 dark:bg-gray-800" />
-
-              {/* Number Pad */}
-              <div className="mt-3">
-                <NumberPad value={amount} onChange={(v) => {
-                  setAmount(v);
-                  setEvaluatedAmount(tryEvaluateExpression(v));
-                }} />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setCreatingCat(false)}
+                  className="press h-11 rounded-2xl bg-surface2 text-sm font-bold text-muted"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={saveCategory}
+                  disabled={!newCatName.trim()}
+                  className="press h-11 rounded-2xl bg-accent text-sm font-bold text-on-accent disabled:opacity-40"
+                >
+                  Создать
+                </button>
               </div>
             </div>
           ) : (
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={amount}
-                onChange={e => {
-                  setAmount(e.target.value);
-                  setEvaluatedAmount(tryEvaluateExpression(e.target.value));
-                }}
-                placeholder="Например: 1500+300"
-                className="w-full text-3xl font-bold bg-transparent border-none outline-none text-gray-800 dark:text-gray-100 placeholder-gray-200 dark:placeholder-gray-700 py-2"
-              />
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 text-2xl text-gray-300 dark:text-gray-600 font-medium">
-                ₽
-              </span>
-              {evaluatedAmount !== null && amount && (
-                <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                  = {formatCurrency(evaluatedAmount)}
-                </div>
-              )}
-              <div className="h-px bg-gray-100 dark:bg-gray-800 mt-1" />
-            </div>
-          )}
-        </div>
-
-        {/* Category */}
-        <div className="mx-4 mt-5">
-          <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Категория
-          </label>
-          <button
-            onClick={() => setShowCategories(!showCategories)}
-            className="w-full mt-2 flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800"
-          >
-            <div className="flex items-center gap-2.5">
-              {selectedCategory ? (
-                <>
-                  <span className="text-lg">{selectedCategory.icon}</span>
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{selectedCategory.name}</span>
-                </>
-              ) : (
-                <span className="text-sm text-gray-400 dark:text-gray-500">Выберите категорию</span>
-              )}
-            </div>
-            <ChevronDown size={16} className={`text-gray-400 transition-transform ${showCategories ? 'rotate-180' : ''}`} />
-          </button>
-
-          {showCategories && (
-            <div>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                {categories.map(cat => (
+            <div className="grid grid-cols-4 gap-2">
+              {categories.map((c) => {
+                const active = categoryId === c.id;
+                return (
                   <button
-                    key={cat.id}
-                    onClick={() => { setCategoryId(cat.id); setShowCategories(false); }}
-                    className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border transition-all ${
-                      categoryId === cat.id
-                        ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
-                        : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900/60 hover:border-gray-200 dark:hover:border-gray-700'
+                    key={c.id}
+                    onClick={() => setCategoryId(c.id)}
+                    className={`press flex aspect-[0.95] flex-col items-center justify-center gap-1 rounded-[20px] border p-1.5 ${
+                      active
+                        ? "border-accent bg-accent-soft shadow-[0_0_0_1px_var(--accent),0_8px_28px_-10px_var(--accent)]"
+                        : "border-line bg-surface"
                     }`}
                   >
-                    <span className="text-xl">{cat.icon}</span>
-                    <span className="text-xs text-gray-600 dark:text-gray-400 truncate w-full text-center">{cat.name}</span>
-                  </button>
-                ))}
-                {/* Add button — same style as category tiles */}
-                <button
-                  onClick={() => setShowAddCat(true)}
-                  className="flex flex-col items-center gap-1 py-3 px-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all"
-                >
-                  <span className="text-xl text-gray-400 dark:text-gray-500">＋</span>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">Создать</span>
-                </button>
-              </div>
-
-              {/* Inline add form */}
-              {showAddCat && (
-                <div className="mt-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center gap-2 mb-2">
-                    <input
-                      type="text"
-                      value={newCatIcon}
-                      onChange={e => { const c = [...e.target.value]; setNewCatIcon(c[c.length - 1] || '📁'); }}
-                      className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 text-center text-xl outline-none"
-                      style={{ caretColor: 'transparent' }}
-                    />
-                    <input
-                      type="text"
-                      value={newCatName}
-                      onChange={e => setNewCatName(e.target.value)}
-                      placeholder="Название"
-                      className="flex-1 py-2 px-3 rounded-lg bg-gray-100 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setShowAddCat(false); setNewCatName(''); setNewCatIcon('📁'); }} className="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-600 text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Отмена
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!newCatName.trim()) return;
-                        addCategory({ name: newCatName.trim(), icon: newCatIcon, type });
-                        setNewCatName('');
-                        setNewCatIcon('📁');
-                        setShowAddCat(false);
-                      }}
-                      disabled={!newCatName.trim()}
-                      className={`flex-1 py-2 rounded-lg text-xs font-medium ${newCatName.trim() ? 'bg-emerald-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-400'}`}
+                    <span className="text-[22px] leading-none">{c.icon}</span>
+                    <span
+                      className={`w-full truncate text-center text-[10px] leading-tight font-bold ${
+                        active ? "text-accent-ink" : "text-ink"
+                      }`}
                     >
-                      Добавить
-                    </button>
-                  </div>
-                </div>
-              )}
+                      {c.name}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  setCreatingCat(true);
+                  setPadVisible(false);
+                }}
+                className="press flex aspect-[0.95] flex-col items-center justify-center gap-1 rounded-[20px] border border-dashed border-muted/50 p-1.5 text-muted"
+              >
+                <Plus size={20} strokeWidth={2.5} />
+                <span className="text-[10px] font-bold">Создать</span>
+              </button>
             </div>
           )}
         </div>
 
-        {/* Comment */}
-        <div className="mx-4 mt-5">
-          <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Комментарий
-          </label>
-          <input
-            type="text"
-            value={comment}
-            onChange={e => setComment(e.target.value)}
-            placeholder="Необязательно"
-            className="w-full mt-2 py-3 text-sm bg-transparent border-b border-gray-100 dark:border-gray-800 outline-none text-gray-800 dark:text-gray-200 placeholder-gray-300 dark:placeholder-gray-600"
-          />
-        </div>
-
-        {/* Date */}
-        <div className="mx-4 mt-5">
-          <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Дата
-          </label>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="w-full mt-2 py-3 text-sm bg-transparent border-b border-gray-100 dark:border-gray-800 outline-none text-gray-800 dark:text-gray-200"
-          />
-        </div>
-
-        {/* Flags */}
-        <div className="mx-4 mt-5 mb-4">
-          <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Тип операции
-          </label>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {(Object.keys(flagLabels) as TransactionFlag[]).map(f => (
+        {/* flags */}
+        <div>
+          <p className="mb-2 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+            Метка
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {FLAGS.map((f) => (
               <button
-                key={f}
-                onClick={() => setFlag(f)}
-                className={`flex items-center gap-2 py-2.5 px-3 rounded-xl border text-left transition-all ${
-                  flag === f
-                    ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
-                    : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900/60'
+                key={f.id}
+                onClick={() => setFlag(f.id)}
+                className={`press rounded-full border px-3.5 py-2 text-[13px] font-bold ${
+                  flag === f.id
+                    ? "border-accent bg-accent-soft text-accent-ink"
+                    : "border-line bg-surface text-muted"
                 }`}
               >
-                <span className="text-base">{flagIcons[f]}</span>
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{flagLabels[f]}</span>
+                {f.label}
               </button>
             ))}
           </div>
-
-          {/* Recurrence Period */}
-          {flag === 'regular' && (
-            <div className="mt-3">
-              <label className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                Период
-              </label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(Object.keys(periodLabels) as RecurrencePeriod[]).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setRecurrencePeriod(p)}
-                    className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
-                      recurrencePeriod === p
-                        ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
-                        : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900/60 text-gray-600 dark:text-gray-400'
-                    }`}
-                  >
-                    {periodLabels[p]}
-                  </button>
-                ))}
-              </div>
-
-              {/* Monthly reminder setup */}
-              {recurrencePeriod === 'monthly' && (
-                <div className="mt-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enableReminder}
-                      onChange={e => setEnableReminder(e.target.checked)}
-                      className="w-4 h-4 rounded accent-emerald-500"
-                    />
-                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                      🔔 Напоминать об этом платеже
-                    </span>
-                  </label>
-
-                  {enableReminder && (
-                    <div className="mt-3">
-                      <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                        Число месяца
-                      </label>
-                      <div className="mt-1.5 grid grid-cols-7 gap-1">
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                          <button
-                            key={day}
-                            onClick={() => setDueDay(day)}
-                            className={`aspect-square rounded-lg text-[11px] font-medium transition-all ${
-                              dueDay === day
-                                ? 'bg-emerald-500 text-white'
-                                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                            }`}
-                          >
-                            {day}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-gray-400 mt-2">
-                        Напоминание появится за 10 дней до {dueDay} числа
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* recurrence */}
+        {flag === "regular" && (
+          <div className="space-y-3 rounded-[22px] border border-line bg-surface p-4">
+            <div className="flex flex-wrap gap-2">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setPeriod(p.id)}
+                  className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                    period === p.id
+                      ? "bg-accent text-on-accent"
+                      : "bg-surface2 text-muted"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {period === "monthly" && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold">День платежа</p>
+                  <p className="text-xs font-medium text-muted">Напомним за 10 дней до срока</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setDueDay((d) => Math.max(1, d - 1))}
+                    className="press flex h-9 w-9 items-center justify-center rounded-full bg-surface2"
+                    aria-label="Меньше"
+                  >
+                    <Minus size={16} />
+                  </button>
+                  <span className="w-8 text-center font-display text-[17px] font-semibold tabular-nums">
+                    {dueDay}
+                  </span>
+                  <button
+                    onClick={() => setDueDay((d) => Math.min(31, d + 1))}
+                    className="press flex h-9 w-9 items-center justify-center rounded-full bg-surface2"
+                    aria-label="Больше"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* comment + date */}
+        <div className="grid gap-2.5">
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onFocus={() => setPadVisible(false)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            enterKeyHint="done"
+            placeholder="Комментарий (необязательно)"
+            className="h-12.5 rounded-2xl border border-line bg-surface px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:text-muted focus:border-accent"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDateVal(toISODate(new Date()))}
+              className={`press h-12.5 flex-1 rounded-2xl border text-sm font-bold ${
+                dateVal === toISODate(new Date())
+                  ? "border-accent bg-accent-soft text-accent-ink"
+                  : "border-line bg-surface text-muted"
+              }`}
+            >
+              Сегодня
+            </button>
+            <button
+              onClick={() => {
+                const y = new Date();
+                y.setDate(y.getDate() - 1);
+                setDateVal(toISODate(y));
+              }}
+              className="press h-12.5 flex-1 rounded-2xl border border-line bg-surface text-sm font-bold text-muted"
+            >
+              Вчера
+            </button>
+            <label className="relative flex h-12.5 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface text-sm font-bold text-muted">
+              <CalendarDays size={16} />
+              <input
+                type="date"
+                value={dateVal}
+                max={toISODate(new Date())}
+                onFocus={() => setPadVisible(false)}
+                onChange={(e) => e.target.value && setDateVal(e.target.value)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+              {dateVal === toISODate(new Date()) ? "Дата" : dateVal.split("-").reverse().slice(0, 2).join(".")}
+            </label>
+          </div>
+        </div>
+        </div>
+
+        {/* затемнение фона, пока открыт калькулятор */}
+        {padVisible && (
+          <button
+            onClick={() => setPadVisible(false)}
+            className="absolute inset-0 z-10 animate-fade cursor-default"
+            style={{ background: "var(--focus-scrim)" }}
+            aria-label="Скрыть клавиатуру"
+            tabIndex={-1}
+          />
+        )}
       </div>
 
-      {/* Save Button */}
-      <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
-        <button
-          onClick={handleSave}
-          disabled={!canSave}
-          className={`w-full py-3.5 rounded-2xl text-sm font-semibold transition-all ${
-            canSave
-              ? type === 'expense'
-                ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20'
-                : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-300 dark:text-gray-600'
-          }`}
-        >
-          {type === 'expense' ? 'Добавить расход' : 'Добавить доход'}
-        </button>
+      {/* pad + save */}
+      <div
+        className={`relative z-20 px-5 pt-3 pb-safe ${
+          padVisible
+            ? "pad-panel rounded-t-[26px] border-t border-line bg-surface"
+            : "border-t border-line bg-bg"
+        }`}
+      >
+        {padVisible && (
+          <div className="animate-pop">
+            <NumberPad onKey={handleKey} />
+          </div>
+        )}
+
+        {padVisible ? (
+          <button
+            onClick={() => setPadVisible(false)}
+            className={`press mt-2.5 mb-1 flex h-14 w-full items-center justify-center rounded-2xl ${
+              result !== null && result > 0
+                ? "glow-accent bg-accent text-on-accent"
+                : "bg-surface2 text-muted"
+            }`}
+            aria-label="Готово, скрыть клавиатуру"
+          >
+            <Check size={28} strokeWidth={3.2} />
+          </button>
+        ) : (
+          <button
+            onClick={save}
+            disabled={!valid}
+            className={`press mt-2.5 mb-1 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-extrabold ${
+              valid ? "glow-accent bg-accent text-on-accent" : "bg-surface2 text-muted"
+            }`}
+          >
+            <Check size={18} strokeWidth={3.2} />
+            {editing ? "Сохранить" : type === "income" ? "Добавить доход" : "Добавить расход"}
+          </button>
+        )}
       </div>
     </div>
   );

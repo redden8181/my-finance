@@ -1,75 +1,122 @@
-export function formatCurrency(amount: number, showSign = false): string {
-  const formatted = new Intl.NumberFormat('ru-RU', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(Math.abs(amount));
+export const MONTH_NAMES = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+];
 
-  if (showSign && amount > 0) return `+${formatted} ₽`;
-  if (showSign && amount < 0) return `-${formatted} ₽`;
-  return `${formatted} ₽`;
+export const MONTH_NAMES_GEN = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
+];
+
+const nf = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
+
+/** 12345.5 → "12 345,5 ₽" */
+export function formatMoney(amount: number, withSign = false): string {
+  const abs = Math.abs(amount);
+  const formatted = nf.format(Math.round(abs * 100) / 100);
+  if (withSign) return `${amount < 0 ? "−" : "+"}${formatted} ₽`;
+  return `${amount < 0 ? "−" : ""}${formatted} ₽`;
 }
 
-export function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (date.toDateString() === today.toDateString()) return 'Сегодня';
-  if (date.toDateString() === yesterday.toDateString()) return 'Вчера';
-
-  return date.toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-    year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
-  });
+export function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-export function formatMonthYear(date: Date): string {
-  return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+export function monthKeyOf(year: number, month: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-export function getMonthName(date: Date): string {
-  return date.toLocaleDateString('ru-RU', { month: 'long' });
+export function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
 }
 
-/** Short date without time: "5 фев 2025" */
-export function formatShortDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+export function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
-/** Human distance: "сегодня", "вчера", "5 дней назад", "2 мес. назад" */
-export function formatAgo(dateStr: string): string {
-  const date = new Date(dateStr);
+/** "Сегодня" / "Вчера" / "12 ноября" */
+export function formatDayLabel(iso: string): string {
+  const d = new Date(iso);
   const now = new Date();
-
-  const d0 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days = Math.round((n0.getTime() - d0.getTime()) / 86400000);
-
-  if (days <= 0) return 'сегодня';
-  if (days === 1) return 'вчера';
-  if (days < 30) {
-    const last2 = days % 100;
-    const last1 = days % 10;
-    let word = 'дней';
-    if (!(last2 >= 11 && last2 <= 19)) {
-      if (last1 === 1) word = 'день';
-      else if (last1 >= 2 && last1 <= 4) word = 'дня';
-    }
-    return `${days} ${word} назад`;
-  }
-  const months = Math.floor(days / 30);
-  return `${months} мес. назад`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameDay(d, now)) return "Сегодня";
+  if (isSameDay(d, yesterday)) return "Вчера";
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return `${d.getDate()} ${MONTH_NAMES_GEN[d.getMonth()]}${sameYear ? "" : ` ${d.getFullYear()}`}`;
 }
 
-export function formatPercent(value: number): string {
-  if (!isFinite(value)) return '—';
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(1)}%`;
+export function formatDateShort(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()} ${MONTH_NAMES_GEN[d.getMonth()]}`;
+}
+
+export function formatDateFull(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()} ${MONTH_NAMES_GEN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Склонение: 1 день, 2 дня, 5 дней */
+export function pluralize(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (last > 1 && last < 5) return few;
+  if (last === 1) return one;
+  return many;
+}
+
+/** Безопасный расчёт выражений вида "1500+300*2" (× ÷ − ,) */
+export function evaluateExpression(input: string): number | null {
+  const expr = input
+    .replace(/,/g, ".")
+    .replace(/×/g, "*")
+    .replace(/÷/g, "/")
+    .replace(/−/g, "-")
+    .replace(/\s+/g, "");
+  if (!expr || /[^0-9+\-*/.]/.test(expr)) return null;
+  let pos = 0;
+  const parseFactor = (): number => {
+    if (expr[pos] === "-") { pos++; return -parseFactor(); }
+    if (expr[pos] === "+") { pos++; return parseFactor(); }
+    let num = "";
+    while (pos < expr.length && /[0-9.]/.test(expr[pos])) num += expr[pos++];
+    const v = parseFloat(num);
+    if (Number.isNaN(v)) throw new Error("nan");
+    return v;
+  };
+  const parseTerm = (): number => {
+    let v = parseFactor();
+    while (pos < expr.length && (expr[pos] === "*" || expr[pos] === "/")) {
+      const op = expr[pos++];
+      v = op === "*" ? v * parseFactor() : v / parseFactor();
+    }
+    return v;
+  };
+  const parseExpr = (): number => {
+    let v = parseTerm();
+    while (pos < expr.length && (expr[pos] === "+" || expr[pos] === "-")) {
+      const op = expr[pos++];
+      v = op === "+" ? v + parseTerm() : v - parseTerm();
+    }
+    return v;
+  };
+  try {
+    const result = parseExpr();
+    if (pos !== expr.length || !Number.isFinite(result)) return null;
+    return Math.round(result * 100) / 100;
+  } catch {
+    return null;
+  }
+}
+
+export function hasOperator(input: string): boolean {
+  return /[+×÷−]/.test(input.slice(1));
 }

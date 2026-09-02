@@ -1,423 +1,342 @@
-import { useMemo, useState } from 'react';
-import { useAppStore } from '../store/StoreContext';
-import { formatCurrency, formatMonthYear, formatDate } from '../utils/format';
-import { ChevronLeft, ChevronRight, PieChart, FileText, TrendingUp, TrendingDown } from 'lucide-react';
-import ReportsScreen from './ReportsScreen';
-import TransactionItem from './TransactionItem';
-import type { Transaction } from '../types';
+import { useMemo, useState } from "react";
+import { ChartPie, ChevronLeft, ChevronRight, FileBarChart } from "lucide-react";
+import { useAppStore } from "../store/StoreContext";
+import { getMonthStats } from "../store/useStore";
+import type { Transaction } from "../types";
+import { formatMoney, MONTH_NAMES } from "../utils/format";
+import { ReportsScreen } from "./ReportsScreen";
+import { TransactionItem } from "./TransactionItem";
 
-type ViewMode = 'all' | 'expense' | 'income';
+type Mode = "all" | "expense" | "income";
 
-const EXPENSE_COLORS = ['#ef4444', '#f97316', '#f43f5e', '#ec4899', '#e11d48', '#fb923c', '#dc2626', '#c026d3'];
-const INCOME_COLORS = ['#10b981', '#14b8a6', '#22c55e', '#06b6d4', '#059669', '#34d399', '#0d9488', '#84cc16'];
+const PALETTE = [
+  "#d3ff4d", "#7bd5f5", "#ff9e7a", "#c9a7ff", "#ffd166",
+  "#6ee7b7", "#f0abfc", "#93c5fd", "#fca5a5", "#bef264",
+];
 
-export default function AnalyticsScreen() {
-  const [showReports, setShowReports] = useState(false);
-  const { transactions, getCategoryById } = useAppStore();
+function Donut({ segments }: { segments: { value: number; color: string }[] }) {
+  const size = 216;
+  const stroke = 30;
+  const r = (size - stroke) / 2;
+  const C = 2 * Math.PI * r;
+  const total = segments.reduce((s, x) => s + x.value, 0);
 
-  const [monthOffset, setMonthOffset] = useState(0);
-  const [mode, setMode] = useState<ViewMode>('all');
-
-  const targetDate = useMemo(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + monthOffset);
-    return d;
-  }, [monthOffset]);
-
-  const targetMonth = targetDate.getMonth();
-  const targetYear = targetDate.getFullYear();
-
-  /* All transactions of the selected month */
-  const monthTx = useMemo(() => {
-    return transactions.filter(t => {
-      const d = new Date(t.date);
-      return d.getMonth() === targetMonth && d.getFullYear() === targetYear;
-    });
-  }, [transactions, targetMonth, targetYear]);
-
-  const totals = useMemo(() => {
-    const income = monthTx.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-    const expense = monthTx.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    return { income, expense, net: income - expense, sum: income + expense };
-  }, [monthTx]);
-
-  /* Category breakdown for current mode */
-  const breakdown = useMemo(() => {
-    const relevant =
-      mode === 'all' ? monthTx : monthTx.filter(t => t.type === mode);
-
-    const map = new Map<string, { total: number; type: 'income' | 'expense' }>();
-    for (const tx of relevant) {
-      const cur = map.get(tx.categoryId);
-      if (cur) cur.total += tx.amount;
-      else map.set(tx.categoryId, { total: tx.amount, type: tx.type });
-    }
-
-    const entries = Array.from(map.entries())
-      .map(([catId, d]) => ({
-        categoryId: catId,
-        category: getCategoryById(catId),
-        total: d.total,
-        type: d.type,
-      }))
-      .sort((a, b) => b.total - a.total);
-
-    // Assign colors: red palette for expenses, green for income
-    let ei = 0;
-    let ii = 0;
-    const withColor = entries.map(e => {
-      const color =
-        e.type === 'expense'
-          ? EXPENSE_COLORS[ei++ % EXPENSE_COLORS.length]
-          : INCOME_COLORS[ii++ % INCOME_COLORS.length];
-      return { ...e, color };
-    });
-
-    const grandTotal = withColor.reduce((s, e) => s + e.total, 0);
-    return { entries: withColor, grandTotal };
-  }, [monthTx, mode, getCategoryById]);
-
-  /* Transactions list for current mode, grouped by day */
-  const groupedTx = useMemo(() => {
-    const relevant =
-      mode === 'all' ? monthTx : monthTx.filter(t => t.type === mode);
-    const sorted = [...relevant].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  if (total <= 0) {
+    return (
+      <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full">
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke="var(--surface2)" strokeWidth={stroke}
+        />
+      </svg>
     );
-    const groups: { date: string; items: Transaction[] }[] = [];
-    for (const tx of sorted) {
-      const key = new Date(tx.date).toDateString();
-      const g = groups.find(x => x.date === key);
-      if (g) g.items.push(tx);
-      else groups.push({ date: key, items: [tx] });
-    }
-    return groups;
-  }, [monthTx, mode]);
-
-  const isEmpty = breakdown.entries.length === 0;
-
-  if (showReports) {
-    return <ReportsScreen onClose={() => setShowReports(false)} />;
   }
 
+  let acc = 0;
+  const gap = segments.length > 1 ? 2.5 : 0;
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Reports button */}
-      <div className="flex-shrink-0 px-4 pt-1 pb-1 flex justify-end">
+    <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full">
+      {segments.map((s, i) => {
+        const arc = (s.value / total) * C;
+        const drawn = Math.max(arc - gap, 0.8);
+        const offset = -acc - gap / 2;
+        acc += arc;
+        return (
+          <circle
+            key={i}
+            cx={size / 2} cy={size / 2} r={r} fill="none"
+            stroke={s.color} strokeWidth={stroke}
+            strokeDasharray={`${drawn} ${C - drawn}`}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            style={{ transition: "stroke-dasharray 0.6s ease, stroke-dashoffset 0.6s ease" }}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+export function AnalyticsScreen({ onEdit }: { onEdit: (tx: Transaction) => void }) {
+  const { transactions, getCategoryById } = useAppStore();
+  const now = new Date();
+  const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [subTab, setSubTab] = useState<"overview" | "reports">("overview");
+  const [mode, setMode] = useState<Mode>("all");
+
+  const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
+
+  const prevMonth = () =>
+    setCursor((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { ...c, month: c.month - 1 }));
+  const nextMonth = () =>
+    setCursor((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { ...c, month: c.month + 1 }));
+
+  const stats = useMemo(
+    () => getMonthStats(transactions, cursor.year, cursor.month),
+    [transactions, cursor]
+  );
+
+  const categoryRows = useMemo(() => {
+    // Группировка по паре «категория + тип», чтобы долги
+    // (одна служебная категория на оба направления) не склеивались
+    const map = new Map<string, { total: number; type: "income" | "expense" }>();
+    for (const t of stats.list) {
+      const key = `${t.categoryId}|${t.type}`;
+      const entry = map.get(key);
+      if (entry) entry.total += t.amount;
+      else map.set(key, { total: t.amount, type: t.type });
+    }
+    return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
+  }, [stats.list]);
+
+  const filteredRows = categoryRows.filter(([, v]) => mode === "all" || v.type === mode);
+
+  const donutSegments = useMemo(() => {
+    if (mode === "all") {
+      return [
+        { value: stats.income, color: "var(--income)" },
+        { value: stats.expense, color: "var(--expense)" },
+      ];
+    }
+    return filteredRows.map(([, v], i) => ({
+      value: v.total,
+      color: PALETTE[i % PALETTE.length],
+    }));
+  }, [mode, stats, filteredRows]);
+
+  const groupTotal = (type: "income" | "expense") => (type === "income" ? stats.income : stats.expense);
+
+  return (
+    <div className="space-y-5 pb-36">
+      {/* month nav */}
+      <div className="animate-rise flex items-center justify-between rounded-full border border-line bg-surface p-1.5">
         <button
-          onClick={() => setShowReports(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-medium transition-colors"
+          onClick={prevMonth}
+          className="press flex h-9 w-9 items-center justify-center rounded-full hover:bg-surface2"
+          aria-label="Предыдущий месяц"
         >
-          <FileText size={13} />
+          <ChevronLeft size={18} />
+        </button>
+        <p className="font-display text-[13px] font-semibold tracking-[0.12em] uppercase">
+          {MONTH_NAMES[cursor.month]} {cursor.year}
+        </p>
+        <button
+          onClick={nextMonth}
+          disabled={isCurrentMonth}
+          className="press flex h-9 w-9 items-center justify-center rounded-full hover:bg-surface2 disabled:opacity-30"
+          aria-label="Следующий месяц"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      {/* sub tabs */}
+      <div className="relative grid animate-rise grid-cols-2 rounded-full border border-line bg-surface p-1" style={{ animationDelay: "60ms" }}>
+        <span
+          className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-accent transition-transform duration-300"
+          style={{ transform: subTab === "reports" ? "translateX(100%)" : "translateX(0)" }}
+        />
+        <button
+          onClick={() => setSubTab("overview")}
+          className={`relative z-10 flex h-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-bold transition-colors ${
+            subTab === "overview" ? "text-on-accent" : "text-muted"
+          }`}
+        >
+          <ChartPie size={14} />
+          Обзор
+        </button>
+        <button
+          onClick={() => setSubTab("reports")}
+          className={`relative z-10 flex h-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-bold transition-colors ${
+            subTab === "reports" ? "text-on-accent" : "text-muted"
+          }`}
+        >
+          <FileBarChart size={14} />
           Отчёты
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-24">
-        {/* ─── 1. MONTH SELECTOR ─── */}
-        <div className="mx-4 flex items-center justify-between py-2">
-          <button
-            onClick={() => setMonthOffset(p => p - 1)}
-            className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 capitalize">
-            {formatMonthYear(targetDate)}
-          </span>
-          <button
-            onClick={() => setMonthOffset(p => Math.min(p + 1, 0))}
-            disabled={monthOffset >= 0}
-            className={`w-9 h-9 rounded-full flex items-center justify-center ${
-              monthOffset >= 0
-                ? 'bg-gray-50 dark:bg-gray-900 text-gray-200 dark:text-gray-700'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
-            }`}
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        {/* ─── 2. OVERVIEW: income vs expense ─── */}
-        <div className="mx-4 mt-1 rounded-2xl bg-gray-50 dark:bg-gray-800/50 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-emerald-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Доходы</span>
-              </div>
-              <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                {formatCurrency(totals.income)}
-              </div>
+      {subTab === "reports" ? (
+        <ReportsScreen />
+      ) : (
+        <>
+          {/* overview card */}
+          <section className="animate-rise rounded-[26px] border border-line bg-surface p-5" style={{ animationDelay: "120ms" }}>
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm font-medium text-muted">Доходы</span>
+              <span className="font-display text-[17px] font-semibold text-income tabular-nums">
+                {formatMoney(stats.income)}
+              </span>
             </div>
-            <div className="text-right">
-              <div className="flex items-center gap-1.5 justify-end">
-                <span className="text-xs text-gray-500 dark:text-gray-400">Расходы</span>
-                <TrendingDown size={14} className="text-red-500" />
-              </div>
-              <div className="text-lg font-bold text-red-500 dark:text-red-400 mt-0.5">
-                {formatCurrency(totals.expense)}
-              </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-sm font-medium text-muted">Расходы</span>
+              <span className="font-display text-[17px] font-semibold text-expense tabular-nums">
+                {formatMoney(stats.expense)}
+              </span>
             </div>
-          </div>
-
-          {/* Proportion bar */}
-          {totals.sum > 0 && (
-            <div className="flex h-2 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
-              <div
-                className="bg-emerald-500 transition-all duration-500"
-                style={{ width: `${(totals.income / totals.sum) * 100}%` }}
-              />
-              <div
-                className="bg-red-500 transition-all duration-500"
-                style={{ width: `${(totals.expense / totals.sum) * 100}%` }}
-              />
+            <div className="mt-4 flex h-2.5 gap-1 overflow-hidden rounded-full">
+              {stats.income + stats.expense === 0 ? (
+                <div className="h-full w-full rounded-full bg-surface2" />
+              ) : (
+                <>
+                  <div
+                    className="h-full rounded-full bg-income transition-all duration-500"
+                    style={{ width: `${(stats.income / (stats.income + stats.expense)) * 100}%` }}
+                  />
+                  <div
+                    className="h-full rounded-full bg-expense transition-all duration-500"
+                    style={{ width: `${(stats.expense / (stats.income + stats.expense)) * 100}%` }}
+                  />
+                </>
+              )}
             </div>
-          )}
-
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <span className="text-xs text-gray-500 dark:text-gray-400">Итого за месяц</span>
-            <span className={`text-base font-bold ${
-              totals.net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
-            }`}>
-              {formatCurrency(totals.net, true)}
-            </span>
-          </div>
-        </div>
-
-        {/* ─── 3. MODE SWITCHER ─── */}
-        <div className="mx-4 mt-4">
-          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-            {([
-              { key: 'all', label: 'Все' },
-              { key: 'expense', label: 'Расходы' },
-              { key: 'income', label: 'Доходы' },
-            ] as { key: ViewMode; label: string }[]).map(m => (
-              <button
-                key={m.key}
-                onClick={() => setMode(m.key)}
-                className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                  mode === m.key
-                    ? m.key === 'expense'
-                      ? 'bg-white dark:bg-gray-700 text-red-500 shadow-sm'
-                      : m.key === 'income'
-                      ? 'bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                      : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-400 dark:text-gray-500'
+            <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">
+              <span className="text-sm font-bold">Итого</span>
+              <span
+                className={`font-display text-[20px] font-semibold tabular-nums ${
+                  stats.net > 0 ? "text-income" : stats.net < 0 ? "text-expense" : "text-ink"
                 }`}
               >
-                {m.label}
+                {formatMoney(stats.net, true)}
+              </span>
+            </div>
+          </section>
+
+          {/* mode toggle */}
+          <div className="relative grid animate-rise grid-cols-3 rounded-full border border-line bg-surface p-1" style={{ animationDelay: "180ms" }}>
+            <span
+              className="absolute inset-y-1 left-1 w-[calc((100%-8px)/3)] rounded-full bg-accent transition-transform duration-300"
+              style={{
+                transform:
+                  mode === "all" ? "translateX(0)" : mode === "expense" ? "translateX(100%)" : "translateX(200%)",
+              }}
+            />
+            {(
+              [
+                ["all", "Все"],
+                ["expense", "Расходы"],
+                ["income", "Доходы"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setMode(id)}
+                className={`relative z-10 h-9 rounded-full text-[13px] font-bold transition-colors ${
+                  mode === id ? "text-on-accent" : "text-muted"
+                }`}
+              >
+                {label}
               </button>
             ))}
           </div>
-        </div>
 
-        {isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-              <PieChart size={28} className="text-gray-300 dark:text-gray-600" />
-            </div>
-            <p className="text-base text-gray-400 dark:text-gray-500 font-medium">
-              Нет данных за этот месяц
-            </p>
-            <p className="text-sm text-gray-300 dark:text-gray-600 mt-1">
-              Добавьте операции, чтобы увидеть аналитику
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* ─── 4. DONUT CHART ─── */}
-            <div className="mx-4 mt-4 flex justify-center">
-              <div className="relative w-48 h-48">
-                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-                  {(() => {
-                    const C = 2 * Math.PI * 42;
-
-                    // "All" mode → two segments: income vs expense
-                    if (mode === 'all') {
-                      const base = totals.income + totals.expense;
-                      if (base === 0) return null;
-                      const incPct = totals.income / base;
-                      const expPct = totals.expense / base;
-                      return (
-                        <>
-                          <circle
-                            cx="50" cy="50" r="42" fill="none"
-                            stroke="#10b981" strokeWidth="12"
-                            strokeDasharray={`${incPct * C} ${C - incPct * C}`}
-                            strokeDashoffset={0}
-                            className="transition-all duration-500"
-                          />
-                          <circle
-                            cx="50" cy="50" r="42" fill="none"
-                            stroke="#ef4444" strokeWidth="12"
-                            strokeDasharray={`${expPct * C} ${C - expPct * C}`}
-                            strokeDashoffset={-incPct * C}
-                            className="transition-all duration-500"
-                          />
-                        </>
-                      );
-                    }
-
-                    // Single type → by categories
-                    let cumulative = 0;
-                    return breakdown.entries.map(entry => {
-                      const pct = entry.total / breakdown.grandTotal;
-                      const dash = pct * C;
-                      const offset = -cumulative * C;
-                      cumulative += pct;
-                      return (
-                        <circle
-                          key={entry.categoryId}
-                          cx="50" cy="50" r="42" fill="none"
-                          stroke={entry.color}
-                          strokeWidth="12"
-                          strokeDasharray={`${dash} ${C - dash}`}
-                          strokeDashoffset={offset}
-                          className="transition-all duration-500"
-                        />
-                      );
-                    });
-                  })()}
-                </svg>
-
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  {mode === 'all' ? (
-                    <>
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">Итого</span>
-                      <span className={`text-xl font-extrabold ${
-                        totals.net >= 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-red-500 dark:text-red-400'
-                      }`}>
-                        {formatCurrency(totals.net, true)}
-                      </span>
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                        {totals.net >= 0 ? 'накоплено' : 'перерасход'}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                        {mode === 'expense' ? 'Расходы' : 'Доходы'}
-                      </span>
-                      <span className="text-lg font-extrabold text-gray-800 dark:text-gray-100">
-                        {formatCurrency(breakdown.grandTotal)}
-                      </span>
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                        {breakdown.entries.length} кат.
-                      </span>
-                    </>
-                  )}
-                </div>
+          {/* donut */}
+          <section className="glow-card animate-rise rounded-[26px] border border-line bg-surface p-5" style={{ animationDelay: "240ms" }}>
+            <div className="relative mx-auto h-54 w-54">
+              <Donut segments={donutSegments} />
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                {mode === "all" ? (
+                  <>
+                    <span
+                      className={`font-display text-[21px] leading-none font-semibold ${
+                        stats.net >= 0 ? "text-income" : "text-expense"
+                      }`}
+                    >
+                      {formatMoney(Math.abs(stats.net))}
+                    </span>
+                    <span className="mt-1.5 text-[10px] font-bold tracking-[0.18em] text-muted uppercase">
+                      {stats.net >= 0 ? "накоплено" : "перерасход"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-display text-[21px] leading-none font-semibold">
+                      {formatMoney(mode === "expense" ? stats.expense : stats.income)}
+                    </span>
+                    <span className="mt-1.5 text-[10px] font-bold tracking-[0.18em] text-muted uppercase">
+                      {mode === "expense" ? "расходы" : "доходы"}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Legend for "all" mode */}
-            {mode === 'all' && (
-              <div className="mx-4 mt-3 flex items-center justify-center gap-5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Доходы {totals.income + totals.expense > 0
-                      ? `${Math.round((totals.income / (totals.income + totals.expense)) * 100)}%`
-                      : '0%'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Расходы {totals.income + totals.expense > 0
-                      ? `${Math.round((totals.expense / (totals.income + totals.expense)) * 100)}%`
-                      : '0%'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* ─── 5. CATEGORY LIST ─── */}
-            <div className="mx-4 mt-4">
-              <div className="rounded-2xl bg-gray-50 dark:bg-gray-800/50 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700/50">
-                {breakdown.entries.map(entry => {
-                  // Percentage within its own group (income or expense),
-                  // so numbers stay meaningful in "all" mode
-                  const groupTotal =
-                    mode === 'all'
-                      ? entry.type === 'income' ? totals.income : totals.expense
-                      : breakdown.grandTotal;
-                  const pct = groupTotal > 0
-                    ? ((entry.total / groupTotal) * 100).toFixed(1)
-                    : '0.0';
-                  return (
-                    <div key={entry.categoryId} className="flex items-center gap-3 px-4 py-3">
-                      <div
-                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: entry.color }}
-                      />
-                      <div className="w-9 h-9 rounded-xl bg-white dark:bg-gray-700 flex items-center justify-center text-base flex-shrink-0">
-                        {entry.category?.icon || '📄'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
-                            {entry.category?.name || 'Без категории'}
+            {/* category list */}
+            <div className="mt-6 space-y-3.5">
+              {filteredRows.length === 0 && (
+                <p className="py-4 text-center text-sm font-medium text-muted">
+                  В этом месяце операций нет
+                </p>
+              )}
+              {filteredRows.map(([rowKey, v], i) => {
+                const catId = rowKey.split("|")[0];
+                const cat = getCategoryById(catId);
+                const total = groupTotal(v.type) || 1;
+                const pct = Math.round((v.total / total) * 100);
+                return (
+                  <div key={rowKey}>
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface2 text-base">
+                        {cat?.icon || "🏷️"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {cat?.name || "Без категории"}
+                        {mode === "all" && (
+                          <span
+                            className={`ml-1.5 text-[10px] font-bold ${
+                              v.type === "income" ? "text-income" : "text-expense"
+                            }`}
+                          >
+                            {v.type === "income" ? "доход" : "расход"}
                           </span>
-                          {mode === 'all' && (
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
-                              entry.type === 'income'
-                                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
-                                : 'bg-red-100 dark:bg-red-900/40 text-red-500 dark:text-red-400'
-                            }`}>
-                              {entry.type === 'income' ? 'доход' : 'расход'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1.5 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${pct}%`, backgroundColor: entry.color }}
-                          />
-                        </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className={`text-sm font-bold ${
-                          entry.type === 'income'
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-red-500 dark:text-red-400'
-                        }`}>
-                          {formatCurrency(entry.total)}
-                        </div>
-                        <div className="text-[10px] text-gray-400 dark:text-gray-500">{pct}%</div>
-                      </div>
+                        )}
+                      </span>
+                      <span className="font-display text-[13px] font-medium tabular-nums">
+                        {formatMoney(v.total)}
+                      </span>
+                      <span className="w-10 text-right text-xs font-bold text-muted tabular-nums">
+                        {pct}%
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* ─── 6. TRANSACTIONS FOR THIS MONTH ─── */}
-            <div className="mx-4 mt-5">
-              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3">
-                Операции
-              </h3>
-              <div className="space-y-4">
-                {groupedTx.map(group => (
-                  <div key={group.date}>
-                    <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 mb-2 uppercase tracking-wider">
-                      {formatDate(group.items[0].date)}
-                    </p>
-                    <div className="rounded-2xl bg-gray-50 dark:bg-gray-800/50 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700/50">
-                      {group.items.map(tx => (
-                        <TransactionItem key={tx.id} transaction={tx} />
-                      ))}
+                    <div className="mt-1.5 ml-11.5 h-1.5 overflow-hidden rounded-full bg-surface2">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${pct}%`,
+                          background:
+                            mode === "all"
+                              ? v.type === "income"
+                                ? "var(--income)"
+                                : "var(--expense)"
+                              : PALETTE[i % PALETTE.length],
+                        }}
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          </>
-        )}
-      </div>
+          </section>
+
+          {/* transactions of month */}
+          {stats.list.length > 0 && (
+            <section className="animate-rise" style={{ animationDelay: "300ms" }}>
+              <h2 className="mb-2.5 px-1 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+                Операции месяца
+              </h2>
+              <div className="divide-y divide-line rounded-[22px] border border-line bg-surface px-4">
+                {[...stats.list]
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .map((tx) => (
+                    <TransactionItem key={tx.id} tx={tx} onEdit={onEdit} />
+                  ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
     </div>
   );
 }

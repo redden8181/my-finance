@@ -1,55 +1,65 @@
-// CACHE_VERSION is updated on every build via the build script
-// If you deploy manually, just change this number to force update
-const CACHE_VERSION = '__BUILD_TIME__';
-const CACHE_NAME = 'koshelek-' + CACHE_VERSION;
+/* Кошелёк — Service Worker (network-first) */
+/* __BUILD_TIME__ заменяется на timestamp в GitHub Actions при каждом деплое */
+const VERSION = "koshelek-v2-__BUILD_TIME__";
+const CACHE = VERSION;
 
-self.addEventListener('install', (event) => {
-  // Don't cache anything on install — we use network-first
-  // This ensures we always get the latest version
-  self.skipWaiting();
-});
+const CORE_ASSETS = ["./", "./index.html", "./manifest.json", "./icon-512.png"];
 
-self.addEventListener('activate', (event) => {
-  // Delete ALL old caches
+self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(
-        names
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      )
-    )
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(CORE_ASSETS))
+      .then(() => self.skipWaiting())
+      .catch(() => self.skipWaiting())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  if (!event.request.url.startsWith('http')) return;
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      )
+      .then(() => self.clients.claim())
+  );
+});
 
-  // NETWORK-FIRST for everything
-  // Try network → cache result → fallback to cache if offline
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response && response.status === 200) {
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Навигация: network-first, кэш как fallback (офлайн)
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, copy);
-          });
+          caches.open(CACHE).then((cache) => cache.put("./index.html", copy));
+          return response;
+        })
+        .catch(() =>
+          caches.match("./index.html").then((cached) => cached || caches.match("./"))
+        )
+    );
+    return;
+  }
+
+  // Остальное: cache-first с дозаписью
+  event.respondWith(
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      return fetch(request).then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
         return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cached) => {
-          return cached || new Response('Offline', { status: 503 });
-        });
-      })
+      });
+    })
   );
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
-    self.skipWaiting();
-  }
 });

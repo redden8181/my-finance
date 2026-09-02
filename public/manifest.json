@@ -1,27 +1,32 @@
 {
-  "name": "Кошелёк — Личные Финансы",
+  "name": "Кошелёк — личные финансы",
   "short_name": "Кошелёк",
-  "description": "Личные финансы, просто и уютно. Работает офлайн.",
+  "description": "Минималистичный учёт личных финансов. Локально, офлайн, без регистрации.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#030712",
-  "theme_color": "#10b981",
   "orientation": "portrait",
-  "categories": ["finance", "utilities"],
+  "background_color": "#eceee8",
+  "theme_color": "#eceee8",
   "lang": "ru",
   "icons": [
     {
-      "src": "./icon-192.png",
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "./icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ]
 }

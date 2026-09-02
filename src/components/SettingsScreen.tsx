@@ -15,10 +15,11 @@ import {
   Upload,
 } from "lucide-react";
 import { useAppStore } from "../store/StoreContext";
+import { isSpecialCategoryId } from "../store/useStore";
 import type { TransactionType } from "../types";
 import { AdjustBalanceSheet } from "./AdjustBalanceSheet";
 
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "2.0";
 const BUILD_TIME =
   typeof (globalThis as Record<string, unknown>).__BUILD_TIME__ === "string"
     ? ((globalThis as Record<string, unknown>).__BUILD_TIME__ as string)
@@ -121,7 +122,10 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
     setEditingId(null);
   };
 
-  const visibleCategories = categories.filter((c) => !c.isSpecial);
+  // Служебные категории (долги, корректировка) полностью скрыты из настроек
+  const visibleCategories = categories.filter(
+    (c) => !c.isSpecial && !isSpecialCategoryId(c.id)
+  );
 
   return (
     <div className="fixed inset-0 z-[55] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">

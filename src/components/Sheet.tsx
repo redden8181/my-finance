@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 const CLOSE_ANIM_MS = 220;
 const CLOSE_THRESHOLD = 110;
 
 /**
- * Нижняя шторка (bottom sheet).
- * Закрывается: свайпом вниз за грабер, тапом по граберу, тапом по затемнению и Esc.
+ * Нижняя шторка рендерится в document.body через Portal.
+ * Это не даёт анимированным родителям ломать position: fixed в iOS Safari.
  */
 export function Sheet({
   open,
@@ -16,115 +17,137 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const [entered, setEntered] = useState(false);
   const [dragY, setDragY] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [closing, setClosing] = useState(false);
   const startY = useRef(0);
   const startTime = useRef(0);
   const moved = useRef(0);
-  const panelRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number>(0);
+  const swallowTimer = useRef<number>(0);
 
   useEffect(() => {
-    if (open) {
+    if (!open) {
+      setEntered(false);
       setDragY(0);
       setDragging(false);
       setClosing(false);
+      return;
     }
+
+    setEntered(false);
+    setDragY(0);
+    setDragging(false);
+    setClosing(false);
+
+    // Два кадра гарантируют переход 100% → 0 даже в standalone Safari.
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => setEntered(true));
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
   }, [open]);
 
-  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(closeTimer.current);
+      window.clearTimeout(swallowTimer.current);
+    },
+    []
+  );
 
-  /**
-   * Закрытие с анимацией. Гасит «призрачный» click, который браузер
-   * присылает после pointerup — иначе он проваливается на элемент
-   * под шторкой и тот снова её открывает.
-   */
   const requestClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
     setDragging(false);
+    setEntered(false);
 
-    const swallow = (e: MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
+    // Подавляем отложенный touch-click, чтобы строка под шторкой не открылась снова.
+    const swallow = (event: MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
     };
     document.addEventListener("click", swallow, true);
-    window.setTimeout(() => document.removeEventListener("click", swallow, true), 450);
+    swallowTimer.current = window.setTimeout(() => {
+      document.removeEventListener("click", swallow, true);
+    }, 450);
 
-    closeTimer.current = window.setTimeout(() => {
-      setClosing(false);
-      onClose();
-    }, CLOSE_ANIM_MS);
+    closeTimer.current = window.setTimeout(onClose, CLOSE_ANIM_MS);
   }, [closing, onClose]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, requestClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const onPointerDown = (event: React.PointerEvent) => {
     if (closing) return;
-    startY.current = e.clientY;
+    startY.current = event.clientY;
     startTime.current = performance.now();
     moved.current = 0;
     setDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onPointerMove = (event: React.PointerEvent) => {
     if (!dragging || closing) return;
-    const delta = e.clientY - startY.current;
+    const delta = event.clientY - startY.current;
     moved.current = Math.max(moved.current, Math.abs(delta));
     setDragY(delta > 0 ? delta : delta / 6);
   };
 
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerUp = (event: React.PointerEvent) => {
     if (!dragging || closing) return;
-    e.preventDefault(); // подавляем синтетический mouse-click от тача
+    event.preventDefault();
     setDragging(false);
 
     const isTap = moved.current < 8 && performance.now() - startTime.current < 400;
-    const flung = dragY > CLOSE_THRESHOLD;
-
-    if (isTap || flung) requestClose();
+    if (isTap || dragY > CLOSE_THRESHOLD) requestClose();
     else setDragY(0);
   };
 
-  const offset = closing ? (panelRef.current?.offsetHeight || 600) : dragY;
-  const progress = Math.min(1, Math.max(0, offset / 320));
+  const progress = Math.min(1, Math.max(0, dragY / 320));
+  const panelOffset =
+    dragging || dragY !== 0 ? `${Math.max(dragY, -12)}px` : entered ? "0px" : "100%";
+  const scrimOpacity = entered && !closing ? 1 - progress * 0.75 : 0;
 
-  return (
-    <div className="fixed inset-0 z-[70]">
+  return createPortal(
+    <div className="fixed inset-0 z-[100]" role="presentation">
       <div
-        className="absolute inset-0 animate-fade backdrop-blur-[3px]"
+        className="absolute inset-0 backdrop-blur-[3px]"
         style={{
           background: "var(--sheet-scrim)",
-          opacity: 1 - progress * 0.75,
+          opacity: scrimOpacity,
           transition: dragging ? "none" : `opacity ${CLOSE_ANIM_MS}ms ease`,
         }}
         onClick={requestClose}
       />
       <div
-        ref={panelRef}
-        className={`absolute inset-x-0 bottom-0 mx-auto w-full max-w-[430px] ${
-          dragging || closing ? "" : "animate-sheet"
-        }`}
+        className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[430px]"
         style={{
-          transform: `translateY(${Math.max(offset, -12)}px)`,
+          transform: `translate3d(0, ${panelOffset}, 0)`,
+          WebkitTransform: `translate3d(0, ${panelOffset}, 0)`,
           transition: dragging
             ? "none"
             : `transform ${CLOSE_ANIM_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+          WebkitTransition: dragging
+            ? "none"
+            : `-webkit-transform ${CLOSE_ANIM_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+          willChange: "transform",
         }}
       >
-        <div className="max-h-[88dvh] overflow-y-auto no-scrollbar rounded-t-[26px] border-t border-line bg-surface pb-safe shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.5)]">
-          {/* грабер — зона захвата для свайпа и тапа */}
+        <div className="max-h-[88vh] max-h-[88dvh] overflow-y-auto no-scrollbar rounded-t-[26px] border-t border-line bg-surface pb-safe shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.5)]">
           <div
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -143,6 +166,7 @@ export function Sheet({
           <div className="px-5 pb-5">{children}</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

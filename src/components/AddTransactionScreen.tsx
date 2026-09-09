@@ -60,6 +60,17 @@ export function AddTransactionScreen({
   const result = useMemo(() => evaluateExpression(expr), [expr]);
   const valid = result !== null && result > 0 && Boolean(categoryId);
 
+  // Состояние кнопок выбора даты: всегда видно, какой вариант активен
+  const todayISO = toISODate(new Date());
+  const yesterdayISO = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return toISODate(d);
+  }, []);
+  const isToday = dateVal === todayISO;
+  const isYesterday = dateVal === yesterdayISO;
+  const isCustomDate = !isToday && !isYesterday;
+
   const quickSpends = useMemo(
     () => (editing || type !== "expense" ? [] : getQuickSpends(transactions, 6)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -398,9 +409,9 @@ export function AddTransactionScreen({
           />
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setDateVal(toISODate(new Date()))}
+              onClick={() => setDateVal(todayISO)}
               className={`press h-12.5 flex-1 rounded-2xl border text-sm font-bold ${
-                dateVal === toISODate(new Date())
+                isToday
                   ? "border-accent bg-accent-soft text-accent-ink"
                   : "border-line bg-surface text-muted"
               }`}
@@ -408,26 +419,34 @@ export function AddTransactionScreen({
               Сегодня
             </button>
             <button
-              onClick={() => {
-                const y = new Date();
-                y.setDate(y.getDate() - 1);
-                setDateVal(toISODate(y));
-              }}
-              className="press h-12.5 flex-1 rounded-2xl border border-line bg-surface text-sm font-bold text-muted"
+              onClick={() => setDateVal(yesterdayISO)}
+              className={`press h-12.5 flex-1 rounded-2xl border text-sm font-bold ${
+                isYesterday
+                  ? "border-accent bg-accent-soft text-accent-ink"
+                  : "border-line bg-surface text-muted"
+              }`}
             >
               Вчера
             </button>
-            <label className="relative flex h-12.5 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface text-sm font-bold text-muted">
+            <label
+              className={`relative flex h-12.5 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-2xl border text-sm font-bold ${
+                isCustomDate
+                  ? "border-accent bg-accent-soft text-accent-ink"
+                  : "border-line bg-surface text-muted"
+              }`}
+            >
               <CalendarDays size={16} />
               <input
                 type="date"
                 value={dateVal}
-                max={toISODate(new Date())}
+                max={todayISO}
                 onFocus={() => setPadVisible(false)}
                 onChange={(e) => e.target.value && setDateVal(e.target.value)}
                 className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               />
-              {dateVal === toISODate(new Date()) ? "Дата" : dateVal.split("-").reverse().slice(0, 2).join(".")}
+              {isCustomDate
+                ? dateVal.split("-").reverse().slice(0, 2).join(".")
+                : "Дата"}
             </label>
           </div>
         </div>

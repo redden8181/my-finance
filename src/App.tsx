@@ -49,8 +49,20 @@ function AppShell() {
     <div className="relative mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-bg">
       {/* ambient glow */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden>
-        <div className="animate-orbit absolute -top-28 -left-20 h-72 w-72 rounded-full blur-[100px]" style={{ background: "var(--orb-1)" }} />
-        <div className="absolute top-2/5 -right-28 h-64 w-64 rounded-full blur-[100px]" style={{ background: "var(--orb-2)" }} />
+        <div
+          className="animate-orbit absolute -top-40 -left-32 h-96 w-96"
+          style={{
+            background:
+              "radial-gradient(circle at center, var(--orb-1) 0%, transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute top-1/3 -right-40 h-96 w-96"
+          style={{
+            background:
+              "radial-gradient(circle at center, var(--orb-2) 0%, transparent 70%)",
+          }}
+        />
       </div>
 
       {/* header */}

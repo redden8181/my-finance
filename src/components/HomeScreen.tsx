@@ -75,9 +75,16 @@ export function HomeScreen({
         className="glow-card animate-rise relative overflow-hidden rounded-[26px] border border-line bg-surface"
         style={{ animationDelay: delay() }}
       >
+        {/* Свечение: радиальный градиент из верхнего правого угла.
+            Без размытых кругов — у градиента нет краёв и обрезки углов. */}
         <div
-          className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full blur-[70px]"
-          style={{ background: "var(--orb-1)" }}
+          className="pointer-events-none absolute inset-0"
+          aria-hidden
+          style={{
+            background:
+              "radial-gradient(115% 90% at 100% 0%, var(--orb-1) 0%, transparent 58%)",
+            opacity: 0.65,
+          }}
         />
         <div className="relative p-5 pb-0">
           <div className="flex items-center gap-2">

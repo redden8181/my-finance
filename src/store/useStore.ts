@@ -18,6 +18,13 @@ const STORAGE_KEY = "koshelek_app_data";
 export const ADJUST_CATEGORY_ID = "cat-adjust";
 export const DEBT_CATEGORY_ID = "cat-debt";
 
+/** Служебные категории: скрыты из UI, их нельзя изменить, удалить или переместить. */
+export const SPECIAL_CATEGORY_IDS = [ADJUST_CATEGORY_ID, DEBT_CATEGORY_ID];
+
+export function isSpecialCategoryId(id: string): boolean {
+  return SPECIAL_CATEGORY_IDS.includes(id);
+}
+
 export const FLAG_LABELS: Record<TransactionFlag, string> = {
   mandatory: "Обязательная",
   spontaneous: "Спонтанная",
@@ -56,6 +63,26 @@ function defaultData(): StoredData {
   };
 }
 
+/**
+ * Восстанавливает служебные категории.
+ * Чинит данные, где они были удалены или сохранены без флага isSpecial
+ * (например, после старых версий приложения).
+ */
+function ensureSpecialCategories(categories: Category[]): Category[] {
+  const healed = categories.map((category) =>
+    isSpecialCategoryId(category.id) ? { ...category, isSpecial: true } : category
+  );
+
+  for (const special of DEFAULT_CATEGORIES) {
+    if (!special.isSpecial) continue;
+    if (!healed.some((category) => category.id === special.id)) {
+      healed.push({ ...special });
+    }
+  }
+
+  return healed;
+}
+
 function loadData(): StoredData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -66,7 +93,7 @@ function loadData(): StoredData {
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
       categories:
         Array.isArray(parsed.categories) && parsed.categories.length
-          ? parsed.categories
+          ? ensureSpecialCategories(parsed.categories)
           : base.categories,
       settings: { theme: parsed.settings?.theme === "dark" ? "dark" : "light" },
       monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
@@ -375,21 +402,26 @@ export function useStore() {
   }, []);
 
   const updateCategory = useCallback((id: string, updates: Partial<Category>) => {
+    if (isSpecialCategoryId(id)) return; // служебные категории неизменяемы
     setData((prev) => ({
       ...prev,
-      categories: prev.categories.map((c) => (c.id === id ? { ...c, ...updates, id } : c)),
+      categories: prev.categories.map((c) =>
+        c.id === id && !c.isSpecial ? { ...c, ...updates, id } : c
+      ),
     }));
   }, []);
 
   const deleteCategory = useCallback((id: string) => {
+    if (isSpecialCategoryId(id)) return; // служебные категории нельзя удалить
     setData((prev) => ({
       ...prev,
-      categories: prev.categories.filter((c) => c.id !== id),
+      categories: prev.categories.filter((c) => c.id !== id || c.isSpecial),
     }));
   }, []);
 
   /** Перемещение категории вверх/вниз внутри своей группы (доходы/расходы) */
   const moveCategory = useCallback((id: string, direction: -1 | 1) => {
+    if (isSpecialCategoryId(id)) return; // служебные категории вне пользовательского порядка
     setData((prev) => {
       const cats = [...prev.categories];
       const idx = cats.findIndex((c) => c.id === id);
@@ -518,7 +550,9 @@ export function useStore() {
       const base = defaultData();
       setData({
         transactions: parsed.transactions,
-        categories: parsed.categories.length ? parsed.categories : base.categories,
+        categories: parsed.categories.length
+          ? ensureSpecialCategories(parsed.categories)
+          : base.categories,
         settings: { theme: parsed.settings?.theme === "dark" ? "dark" : "light" },
         monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
         lastCheckedMonth: parsed.lastCheckedMonth || base.lastCheckedMonth,
@@ -539,7 +573,9 @@ export function useStore() {
 
   const getCategoriesByType = useCallback(
     (type: TransactionType) =>
-      data.categories.filter((c) => c.type === type && !c.isSpecial),
+      data.categories.filter(
+        (c) => c.type === type && !c.isSpecial && !isSpecialCategoryId(c.id)
+      ),
     [data.categories]
   );
 

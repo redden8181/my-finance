@@ -61,8 +61,13 @@ export function ReportsScreen() {
       {/* live report */}
       <section className="glow-card animate-rise relative overflow-hidden rounded-[26px] border border-line bg-surface p-5" style={{ animationDelay: "120ms" }}>
         <div
-          className="pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full blur-[70px]"
-          style={{ background: "var(--orb-1)" }}
+          className="pointer-events-none absolute inset-0"
+          aria-hidden
+          style={{
+            background:
+              "radial-gradient(115% 90% at 100% 0%, var(--orb-1) 0%, transparent 58%)",
+            opacity: 0.65,
+          }}
         />
         <div className="relative flex items-center justify-between">
           <h2 className="font-display text-[14px] font-semibold tracking-[0.1em] uppercase">

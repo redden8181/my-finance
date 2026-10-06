@@ -40,6 +40,20 @@ export interface Debt {
   paidAt?: string;
 }
 
+/**
+ * Разовая запланированная трата.
+ * Баланс не меняет: это только напоминание отложить деньги.
+ * Расход создаётся в момент подтверждения.
+ */
+export interface PlannedExpense {
+  id: string;
+  title: string;
+  amount: number;
+  categoryId: string;
+  dueDate: string; // ISO — когда планируется потратить
+  createdAt: string;
+}
+
 export interface MonthlyReport {
   id: string;
   month: number; // 0-11
@@ -66,4 +80,5 @@ export interface StoredData {
   monthlyReports: MonthlyReport[];
   lastCheckedMonth: string; // "YYYY-MM"
   debts: Debt[];
+  plannedExpenses: PlannedExpense[];
 }

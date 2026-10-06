@@ -5,6 +5,7 @@ import type {
   Debt,
   DebtDirection,
   MonthlyReport,
+  PlannedExpense,
   StoredData,
   ThemeMode,
   Transaction,
@@ -60,6 +61,7 @@ function defaultData(): StoredData {
     monthlyReports: [],
     lastCheckedMonth: monthKeyOf(now.getFullYear(), now.getMonth()),
     debts: [],
+    plannedExpenses: [],
   };
 }
 
@@ -99,6 +101,7 @@ function loadData(): StoredData {
       monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
       lastCheckedMonth: parsed.lastCheckedMonth || base.lastCheckedMonth,
       debts: Array.isArray(parsed.debts) ? parsed.debts : [],
+      plannedExpenses: Array.isArray(parsed.plannedExpenses) ? parsed.plannedExpenses : [],
     };
   } catch {
     return defaultData();
@@ -214,6 +217,34 @@ export function computeReminders(transactions: Transaction[]): Reminder[] {
     });
   }
   return result.sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
+export interface PlannedView {
+  item: PlannedExpense;
+  dueDate: Date;
+  daysUntil: number;
+  level: "green" | "yellow" | "orange" | "red";
+}
+
+/** Запланированные траты, отсортированные по сроку */
+export function computePlanned(planned: PlannedExpense[]): PlannedView[] {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  return planned
+    .map((item) => {
+      const dueDate = new Date(item.dueDate);
+      const dayStart = new Date(
+        dueDate.getFullYear(),
+        dueDate.getMonth(),
+        dueDate.getDate()
+      ).getTime();
+      const daysUntil = Math.round((dayStart - todayStart) / 86400000);
+      const level =
+        daysUntil < 0 ? "red" : daysUntil <= 2 ? "orange" : daysUntil <= 5 ? "yellow" : "green";
+      return { item, dueDate, daysUntil, level } as PlannedView;
+    })
+    .sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
 /** Топ частых комбинаций категория+сумма из истории расходов */
@@ -437,6 +468,52 @@ export function useStore() {
     });
   }, []);
 
+  /* --- запланированные траты (разовые) --- */
+
+  const addPlannedExpense = useCallback(
+    (planned: { title: string; amount: number; categoryId: string; dueDate: string }) => {
+      const full: PlannedExpense = {
+        ...planned,
+        id: uuid(),
+        createdAt: new Date().toISOString(),
+      };
+      setData((prev) => ({ ...prev, plannedExpenses: [...prev.plannedExpenses, full] }));
+      return full;
+    },
+    []
+  );
+
+  /** Подтверждение траты: создаётся расход, план убирается из списка */
+  const completePlannedExpense = useCallback((id: string) => {
+    setData((prev) => {
+      const planned = prev.plannedExpenses.find((p) => p.id === id);
+      if (!planned) return prev;
+      const now = new Date().toISOString();
+      const tx: Transaction = {
+        id: uuid(),
+        type: "expense",
+        amount: planned.amount,
+        categoryId: planned.categoryId,
+        comment: planned.title,
+        date: now,
+        flag: "planned",
+        createdAt: now,
+      };
+      return {
+        ...prev,
+        transactions: [...prev.transactions, tx],
+        plannedExpenses: prev.plannedExpenses.filter((p) => p.id !== id),
+      };
+    });
+  }, []);
+
+  const deletePlannedExpense = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      plannedExpenses: prev.plannedExpenses.filter((p) => p.id !== id),
+    }));
+  }, []);
+
   /* --- debts --- */
 
   const addDebt = useCallback(
@@ -557,6 +634,7 @@ export function useStore() {
         monthlyReports: Array.isArray(parsed.monthlyReports) ? parsed.monthlyReports : [],
         lastCheckedMonth: parsed.lastCheckedMonth || base.lastCheckedMonth,
         debts: Array.isArray(parsed.debts) ? parsed.debts : [],
+        plannedExpenses: Array.isArray(parsed.plannedExpenses) ? parsed.plannedExpenses : [],
       });
       return true;
     } catch {
@@ -581,6 +659,11 @@ export function useStore() {
 
   const reminders = useMemo(() => computeReminders(data.transactions), [data.transactions]);
   const balance = useMemo(() => getBalance(data.transactions), [data.transactions]);
+  const planned = useMemo(() => computePlanned(data.plannedExpenses), [data.plannedExpenses]);
+  const plannedTotal = useMemo(
+    () => data.plannedExpenses.reduce((sum, p) => sum + p.amount, 0),
+    [data.plannedExpenses]
+  );
 
   return {
     transactions: data.transactions,
@@ -588,8 +671,14 @@ export function useStore() {
     settings: data.settings,
     monthlyReports: data.monthlyReports,
     debts: data.debts,
+    plannedExpenses: data.plannedExpenses,
     reminders,
     balance,
+    planned,
+    plannedTotal,
+    addPlannedExpense,
+    completePlannedExpense,
+    deletePlannedExpense,
     addTransaction,
     updateTransaction,
     deleteTransaction,

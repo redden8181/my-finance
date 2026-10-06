@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Settings, WifiOff } from "lucide-react";
 import { StoreProvider, useAppStore } from "./store/StoreContext";
 import type { Transaction } from "./types";
+import { AddPlannedScreen } from "./components/AddPlannedScreen";
 import { AddTransactionScreen } from "./components/AddTransactionScreen";
 import { AnalyticsScreen } from "./components/AnalyticsScreen";
 import { DebtsScreen } from "./components/DebtsScreen";
@@ -9,7 +10,7 @@ import { HomeScreen } from "./components/HomeScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 
 type Tab = "home" | "analytics";
-type Overlay = null | "add" | "edit" | "settings" | "debts";
+type Overlay = null | "add" | "edit" | "settings" | "debts" | "planned";
 
 function AppShell() {
   const { settings } = useAppStore();
@@ -118,7 +119,12 @@ function AppShell() {
       {/* content */}
       <main className="relative z-10 flex-1 px-5 pt-2">
         {tab === "home" ? (
-          <HomeScreen key="home" onEdit={openEdit} onOpenDebts={() => setOverlay("debts")} />
+          <HomeScreen
+            key="home"
+            onEdit={openEdit}
+            onOpenDebts={() => setOverlay("debts")}
+            onAddPlanned={() => setOverlay("planned")}
+          />
         ) : (
           <AnalyticsScreen key="analytics" onEdit={openEdit} />
         )}
@@ -148,6 +154,7 @@ function AppShell() {
           }}
         />
       )}
+      {overlay === "planned" && <AddPlannedScreen onClose={() => setOverlay(null)} />}
       {overlay === "debts" && <DebtsScreen onClose={() => setOverlay(null)} />}
       {overlay === "settings" && <SettingsScreen onClose={() => setOverlay(null)} />}
     </div>

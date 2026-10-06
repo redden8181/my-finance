@@ -8,6 +8,8 @@ import {
   HandCoins,
   History,
   Package,
+  Plus,
+  Target,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -15,6 +17,7 @@ import { useAppStore } from "../store/StoreContext";
 import { getBalanceSeries, getCarryover, getMonthStats } from "../store/useStore";
 import type { Transaction } from "../types";
 import { formatDayLabel, formatMoney, toISODate } from "../utils/format";
+import { PlannedCard } from "./PlannedCard";
 import { ReminderCard } from "./ReminderCard";
 import { Sparkline } from "./Sparkline";
 import { TransactionItem } from "./TransactionItem";
@@ -22,11 +25,13 @@ import { TransactionItem } from "./TransactionItem";
 export function HomeScreen({
   onEdit,
   onOpenDebts,
+  onAddPlanned,
 }: {
   onEdit: (tx: Transaction) => void;
   onOpenDebts: () => void;
+  onAddPlanned: () => void;
 }) {
-  const { transactions, balance, reminders, debts } = useAppStore();
+  const { transactions, balance, reminders, debts, planned, plannedTotal } = useAppStore();
 
   const now = new Date();
   const monthStats = useMemo(
@@ -160,7 +165,58 @@ export function HomeScreen({
             </span>
             <span className="font-bold tabular-nums">{formatMoney(carryover)}</span>
           </div>
+          {plannedTotal > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 font-medium text-muted">
+                <Target size={14} />
+                Запланированные траты
+              </span>
+              <span className="font-bold text-accent-ink tabular-nums">
+                {formatMoney(plannedTotal)}
+              </span>
+            </div>
+          )}
         </div>
+      </section>
+
+      {/* ---- Запланированные траты ---- */}
+      <section className="animate-rise" style={{ animationDelay: delay() }}>
+        <div className="mb-2.5 flex items-center justify-between px-1">
+          <h2 className="flex items-center gap-2 text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
+            <Target size={13} />
+            Планы
+          </h2>
+          <button
+            onClick={onAddPlanned}
+            className="press flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] font-bold text-accent-ink"
+          >
+            <Plus size={12} strokeWidth={3} />
+            Запланировать
+          </button>
+        </div>
+
+        {planned.length === 0 ? (
+          <button
+            onClick={onAddPlanned}
+            className="press flex w-full items-center gap-3 rounded-[22px] border border-dashed border-line bg-surface/40 p-4 text-left"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft">
+              <Target size={20} className="text-accent-ink" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-bold">Запланировать трату</span>
+              <span className="mt-0.5 block text-xs font-medium text-muted">
+                Отложите деньги заранее — напомним к сроку
+              </span>
+            </span>
+          </button>
+        ) : (
+          <div className="space-y-2.5">
+            {planned.map((p, i) => (
+              <PlannedCard key={p.item.id} view={p} index={i} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ---- Напоминания ---- */}

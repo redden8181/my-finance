@@ -317,7 +317,7 @@ export function DebtsScreen({ onClose }: { onClose: () => void }) {
 
       {/* форма нового долга */}
       {adding && (
-        <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+        <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col overflow-x-hidden bg-bg">
           <header className="flex items-center gap-3 px-5 pt-safe pb-3">
             <button
               onClick={() => setAdding(false)}

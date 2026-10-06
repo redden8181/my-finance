@@ -1,14 +1,20 @@
 import { useMemo, useRef, useState } from "react";
 import { CalendarDays, Check, Plus, X } from "lucide-react";
 import { useAppStore } from "../store/StoreContext";
-import { evaluateExpression, formatMoney, hasOperator, toISODate } from "../utils/format";
+import {
+  evaluateExpression,
+  formatMoney,
+  hasOperator,
+  takeLastGrapheme,
+  toISODate,
+} from "../utils/format";
 import { NumberPad } from "./NumberPad";
 
 /** Быстрый выбор срока: через сколько дней планируется трата */
 const QUICK_DAYS = [
   { label: "Сегодня", days: 0 },
   { label: "Завтра", days: 1 },
-  { label: "Через неделю", days: 7 },
+  { label: "Неделя", days: 7 },
 ];
 
 function isoFromDays(days: number): string {
@@ -88,7 +94,7 @@ export function AddPlannedScreen({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+    <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col overflow-x-hidden bg-bg">
       <header className="flex items-center gap-3 px-5 pt-safe pb-3">
         <button
           onClick={onClose}
@@ -147,7 +153,7 @@ export function AddPlannedScreen({ onClose }: { onClose: () => void }) {
                   <button
                     key={q.days}
                     onClick={() => setDateVal(iso)}
-                    className={`press h-12 flex-1 rounded-2xl border text-[13px] font-bold ${
+                    className={`press h-12 min-w-0 flex-1 truncate rounded-2xl border px-1 text-[12px] font-bold ${
                       active
                         ? "border-accent bg-accent-soft text-accent-ink"
                         : "border-line bg-surface text-muted"
@@ -187,7 +193,7 @@ export function AddPlannedScreen({ onClose }: { onClose: () => void }) {
                 <div className="flex gap-2">
                   <input
                     value={newCatIcon}
-                    onChange={(e) => setNewCatIcon([...e.target.value].slice(-1).join(""))}
+                    onChange={(e) => setNewCatIcon(takeLastGrapheme(e.target.value))}
                     onFocus={() => setPadVisible(false)}
                     placeholder="😀"
                     className="h-12 w-14 rounded-2xl bg-surface2 text-center text-xl outline-none"

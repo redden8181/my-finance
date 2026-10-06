@@ -16,10 +16,11 @@ import {
 } from "lucide-react";
 import { useAppStore } from "../store/StoreContext";
 import { isSpecialCategoryId } from "../store/useStore";
+import { takeLastGrapheme } from "../utils/format";
 import type { TransactionType } from "../types";
 import { AdjustBalanceSheet } from "./AdjustBalanceSheet";
 
-const APP_VERSION = "2.2";
+const APP_VERSION = "2.2.1";
 const BUILD_TIME =
   typeof (globalThis as Record<string, unknown>).__BUILD_TIME__ === "string"
     ? ((globalThis as Record<string, unknown>).__BUILD_TIME__ as string)
@@ -221,7 +222,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
                             <input
                               value={editIcon}
                               onChange={(e) =>
-                                setEditIcon([...e.target.value].slice(-1).join(""))
+                                setEditIcon(takeLastGrapheme(e.target.value))
                               }
                               className="h-10 w-11 shrink-0 rounded-xl bg-surface2 text-center text-lg outline-none"
                             />
@@ -320,7 +321,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
               <div className="flex gap-2">
                 <input
                   value={newIcon}
-                  onChange={(e) => setNewIcon([...e.target.value].slice(-1).join(""))}
+                  onChange={(e) => setNewIcon(takeLastGrapheme(e.target.value))}
                   placeholder="😀"
                   className="h-11 w-13 rounded-2xl bg-surface2 text-center text-lg outline-none"
                 />

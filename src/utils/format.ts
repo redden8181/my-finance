@@ -1,3 +1,56 @@
+/**
+ * Берёт последний ЦЕЛЫЙ символ (графемный кластер).
+ * Важно для эмодзи: 👍🏽 или 👨‍👩‍👧 состоят из нескольких кодовых точек,
+ * и обрезка по code point оставляет «хвост» (модификатор тона, ZWJ,
+ * variation selector), который рисуется пустым квадратом.
+ */
+export function takeLastGrapheme(value: string): string {
+  if (!value) return "";
+
+  const Segmenter = (
+    Intl as unknown as {
+      Segmenter?: new (
+        locale?: string,
+        options?: { granularity: "grapheme" | "word" | "sentence" }
+      ) => { segment: (input: string) => Iterable<{ segment: string }> };
+    }
+  ).Segmenter;
+
+  if (Segmenter) {
+    const segments = [...new Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+    return segments.length ? segments[segments.length - 1].segment : "";
+  }
+
+  // Фолбэк для старых движков: собираем кластер вручную с конца
+  const points = [...value];
+  let end = points.length;
+  let start = end - 1;
+
+  const isModifier = (ch: string) => {
+    const code = ch.codePointAt(0) ?? 0;
+    return (
+      ch === "\u200D" || // zero-width joiner
+      ch === "\uFE0F" || // variation selector-16
+      ch === "\uFE0E" ||
+      (code >= 0x1f3fb && code <= 0x1f3ff) || // тона кожи
+      (code >= 0x1f1e6 && code <= 0x1f1ff) || // флаги
+      (code >= 0x20d0 && code <= 0x20ff) // комбинирующие знаки
+    );
+  };
+
+  while (start > 0) {
+    const current = points[start];
+    const prev = points[start - 1];
+    if (isModifier(current) || prev === "\u200D" || isModifier(prev)) {
+      start -= 1;
+      continue;
+    }
+    break;
+  }
+
+  return points.slice(Math.max(start, 0), end).join("");
+}
+
 export const MONTH_NAMES = [
   "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",

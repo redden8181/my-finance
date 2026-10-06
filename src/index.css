@@ -64,8 +64,11 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
   --color-on-accent: var(--on-accent);
-  --font-sans: "Onest", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Unbounded", "Onest", ui-sans-serif, sans-serif;
+  /* Шрифты эмодзи в конце стека: без них часть символов рисуется квадратом */
+  --font-sans: "Onest", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --font-display: "Unbounded", "Onest", ui-sans-serif, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
 
   --animate-fade: fade 0.35s ease both;
   --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -98,13 +101,19 @@
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+  /* Экран не ездит вбок и не масштабируется двойным тапом */
+  overflow-x: hidden;
+  touch-action: pan-y;
 }
 
 body {
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--ink);
-  overscroll-behavior-y: none;
+  overscroll-behavior: none;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.35s ease, color 0.35s ease;
 }

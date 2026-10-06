@@ -12,6 +12,7 @@ import {
   evaluateExpression,
   formatMoney,
   hasOperator,
+  takeLastGrapheme,
   toISODate,
 } from "../utils/format";
 import { NumberPad } from "./NumberPad";
@@ -147,7 +148,7 @@ export function AddTransactionScreen({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col bg-bg">
+    <div className="fixed inset-0 z-[60] mx-auto flex h-dvh w-full max-w-[430px] animate-sheet flex-col overflow-x-hidden bg-bg">
       {/* header */}
       <header className="flex items-center gap-3 px-5 pt-safe pb-3">
         <button
@@ -255,7 +256,7 @@ export function AddTransactionScreen({
               <div className="flex gap-2">
                 <input
                   value={newCatIcon}
-                  onChange={(e) => setNewCatIcon([...e.target.value].slice(-1).join(""))}
+                  onChange={(e) => setNewCatIcon(takeLastGrapheme(e.target.value))}
                   onFocus={() => setPadVisible(false)}
                   placeholder="😀"
                   className="h-12 w-14 rounded-2xl bg-surface2 text-center text-xl outline-none"

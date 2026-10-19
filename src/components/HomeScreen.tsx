@@ -102,30 +102,30 @@ export function HomeScreen({
             {formatMoney(balance)}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2.5">
-            <div className="flex items-center gap-2.5 rounded-2xl bg-income-soft px-3.5 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-income/20">
-                <TrendingUp size={15} className="text-income" strokeWidth={2.6} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[10px] font-bold tracking-[0.14em] text-muted uppercase">
+            <div className="min-w-0 rounded-2xl bg-income-soft px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-income/20">
+                  <TrendingUp size={15} className="text-income" strokeWidth={2.6} />
+                </span>
+                <span className="text-[10px] font-bold tracking-[0.14em] text-muted uppercase">
                   Доходы
                 </span>
-                <span className="block truncate text-[15px] font-bold text-income tabular-nums">
-                  {formatMoney(monthStats.income)}
-                </span>
+              </div>
+              <span className="mt-1.5 block text-[15px] leading-snug font-bold text-income tabular-nums [overflow-wrap:anywhere]">
+                {formatMoney(monthStats.income)}
               </span>
             </div>
-            <div className="flex items-center gap-2.5 rounded-2xl bg-expense-soft px-3.5 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-expense/20">
-                <TrendingDown size={15} className="text-expense" strokeWidth={2.6} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[10px] font-bold tracking-[0.14em] text-muted uppercase">
+            <div className="min-w-0 rounded-2xl bg-expense-soft px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-expense/20">
+                  <TrendingDown size={15} className="text-expense" strokeWidth={2.6} />
+                </span>
+                <span className="text-[10px] font-bold tracking-[0.14em] text-muted uppercase">
                   Расходы
                 </span>
-                <span className="block truncate text-[15px] font-bold text-expense tabular-nums">
-                  {formatMoney(monthStats.expense)}
-                </span>
+              </div>
+              <span className="mt-1.5 block text-[15px] leading-snug font-bold text-expense tabular-nums [overflow-wrap:anywhere]">
+                {formatMoney(monthStats.expense)}
               </span>
             </div>
           </div>

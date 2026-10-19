@@ -296,9 +296,11 @@ export function AnalyticsScreen({ onEdit }: { onEdit: (tx: Transaction) => void 
                       <span className="font-display text-[13px] font-medium tabular-nums">
                         {formatMoney(v.total)}
                       </span>
-                      <span className="w-10 text-right text-xs font-bold text-muted tabular-nums">
-                        {pct}%
-                      </span>
+                      {mode !== "all" && (
+                        <span className="w-10 text-right text-xs font-bold text-muted tabular-nums">
+                          {pct}%
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1.5 ml-11.5 h-1.5 overflow-hidden rounded-full bg-surface2">
                       <div

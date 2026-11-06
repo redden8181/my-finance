@@ -20,7 +20,7 @@ import { takeLastGrapheme } from "../utils/format";
 import type { TransactionType } from "../types";
 import { AdjustBalanceSheet } from "./AdjustBalanceSheet";
 
-const APP_VERSION = "2.3";
+const APP_VERSION = "2.3.1";
 const BUILD_TIME =
   typeof (globalThis as Record<string, unknown>).__BUILD_TIME__ === "string"
     ? ((globalThis as Record<string, unknown>).__BUILD_TIME__ as string)

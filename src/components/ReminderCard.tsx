@@ -78,7 +78,7 @@ export function ReminderCard({ reminder, index }: { reminder: Reminder; index: n
           <div className="mt-5 grid gap-2">
             <button
               onClick={() => {
-                payReminder(reminder.tx.id);
+                payReminder(reminder.tx.id, reminder.dueDate);
                 setConfirmOpen(false);
               }}
               className="press flex h-13 items-center justify-center gap-2 rounded-2xl bg-income text-[15px] font-bold text-on-accent"

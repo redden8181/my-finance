@@ -180,43 +180,44 @@ export interface Reminder {
   progress: number;
 }
 
-export function computeReminders(transactions: Transaction[]): Reminder[] {
-  const now = new Date();
-  const templates = transactions.filter(
-    (t) =>
-      t.flag === "regular" &&
-      t.recurrencePeriod === "monthly" &&
-      typeof t.dueDay === "number" &&
-      t.type === "expense"
-  );
-  const result: Reminder[] = [];
-  for (const tx of templates) {
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    let dueDate = new Date(y, m, Math.min(tx.dueDay!, daysInMonth(y, m)));
-    // если платёж в этом месяце уже подтверждён — смотрим следующий цикл
-    if (tx.lastPaidAt) {
-      const paid = new Date(tx.lastPaidAt);
-      if (paid.getFullYear() === y && paid.getMonth() === m) {
-        const nm = m === 11 ? 0 : m + 1;
-        const ny = m === 11 ? y + 1 : y;
-        dueDate = new Date(ny, nm, Math.min(tx.dueDay!, daysInMonth(ny, nm)));
-      }
-    }
-    const todayStart = new Date(y, m, now.getDate()).getTime();
-    const daysUntil = Math.round((dueDate.getTime() - todayStart) / 86400000);
-    if (daysUntil > 10) continue;
-    const level =
-      daysUntil < 0 ? "red" : daysUntil <= 2 ? "orange" : daysUntil <= 5 ? "yellow" : "green";
-    result.push({
-      tx,
-      dueDate,
-      daysUntil,
-      level,
-      progress: Math.min(1, Math.max(0, (10 - daysUntil) / 10)),
-    });
+function computeMonthlyReminder(tx: Transaction, today: Date): Reminder | null {
+  if (
+    tx.type !== "expense" ||
+    tx.flag !== "regular" ||
+    tx.recurrencePeriod !== "monthly" ||
+    typeof tx.dueDay !== "number"
+  ) {
+    return null;
   }
-  return result.sort((a, b) => a.daysUntil - b.daysUntil);
+
+  // Исходная трата уже оплачивает свой месяц. Для раннего платежа из
+  // напоминания учитываем месяц срока, а не месяц фактической оплаты.
+  const paidCycle = new Date(tx.lastPaidDueDate ?? tx.lastPaidAt ?? tx.date);
+  const firstUnpaidMonth = new Date(paidCycle.getFullYear(), paidCycle.getMonth() + 1, 1);
+  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const dueMonth = firstUnpaidMonth > currentMonth ? firstUnpaidMonth : currentMonth;
+  const year = dueMonth.getFullYear();
+  const month = dueMonth.getMonth();
+  const dueDate = new Date(year, month, Math.min(tx.dueDay, daysInMonth(year, month)));
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysUntil = Math.round((dueDate.getTime() - todayStart.getTime()) / 86400000);
+  if (daysUntil > 10) return null;
+
+  return {
+    tx,
+    dueDate,
+    daysUntil,
+    level: daysUntil < 0 ? "red" : daysUntil <= 2 ? "orange" : daysUntil <= 5 ? "yellow" : "green",
+    progress: Math.min(1, Math.max(0, (10 - daysUntil) / 10)),
+  };
+}
+
+export function computeReminders(transactions: Transaction[]): Reminder[] {
+  const today = new Date();
+  return transactions
+    .map((tx) => computeMonthlyReminder(tx, today))
+    .filter((reminder): reminder is Reminder => reminder !== null)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
 /** Сколько уже возвращено по долгу — считаем по связанным транзакциям */
@@ -412,11 +413,14 @@ export function useStore() {
   }, []);
 
   /** Подтверждение оплаты регулярного платежа из напоминания */
-  const payReminder = useCallback((templateId: string) => {
+  const payReminder = useCallback((templateId: string, dueDate: Date) => {
     setData((prev) => {
       const template = prev.transactions.find((t) => t.id === templateId);
       if (!template) return prev;
-      const now = new Date().toISOString();
+      const today = new Date();
+      const reminder = computeMonthlyReminder(template, today);
+      if (!reminder || reminder.dueDate.getTime() !== dueDate.getTime()) return prev;
+      const now = today.toISOString();
       const payment: Transaction = {
         id: uuid(),
         type: "expense",
@@ -431,7 +435,11 @@ export function useStore() {
       return {
         ...prev,
         transactions: prev.transactions
-          .map((t) => (t.id === templateId ? { ...t, lastPaidAt: now } : t))
+          .map((t) =>
+            t.id === templateId
+              ? { ...t, lastPaidAt: now, lastPaidDueDate: dueDate.toISOString() }
+              : t
+          )
           .concat(payment),
       };
     });

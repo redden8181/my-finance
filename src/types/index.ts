@@ -16,6 +16,7 @@ export interface Transaction {
   createdAt: string;
   dueDay?: number; // 1-31, день ежемесячного платежа
   lastPaidAt?: string; // когда подтверждена оплата цикла
+  lastPaidDueDate?: string; // срок оплаченного цикла
   debtId?: string; // связь с долгом
   debtKind?: "open" | "repay";
 }

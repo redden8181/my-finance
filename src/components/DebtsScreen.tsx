@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   CircleDollarSign,
+  Coins,
   Plus,
   RotateCcw,
   Trash2,
@@ -12,7 +13,8 @@ import {
   X,
 } from "lucide-react";
 import { useAppStore } from "../store/StoreContext";
-import type { DebtDirection } from "../types";
+import type { Debt, DebtDirection } from "../types";
+import { getDebtRemaining, getDebtRepaid } from "../store/useStore";
 import {
   evaluateExpression,
   formatDateShort,
@@ -20,9 +22,10 @@ import {
   pluralize,
 } from "../utils/format";
 import { NumberPad } from "./NumberPad";
+import { Sheet } from "./Sheet";
 
 export function DebtsScreen({ onClose }: { onClose: () => void }) {
-  const { debts, addDebt, toggleDebtPaid, deleteDebt } = useAppStore();
+  const { debts, transactions, addDebt, toggleDebtPaid, repayDebt, deleteDebt } = useAppStore();
 
   const [adding, setAdding] = useState(false);
   const [direction, setDirection] = useState<DebtDirection>("owed_to_me");
@@ -33,6 +36,42 @@ export function DebtsScreen({ onClose }: { onClose: () => void }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [nameFocused, setNameFocused] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // частичное погашение
+  const [repayTarget, setRepayTarget] = useState<Debt | null>(null);
+  const [repayExpr, setRepayExpr] = useState("");
+
+  const repaidOf = (debt: Debt) => getDebtRepaid(debt.id, transactions);
+  const remainingOf = (debt: Debt) => getDebtRemaining(debt, transactions);
+
+  const openRepay = (debt: Debt) => {
+    setRepayTarget(debt);
+    setRepayExpr("");
+  };
+
+  const repayResult = useMemo(() => evaluateExpression(repayExpr), [repayExpr]);
+  const repayMax = repayTarget ? remainingOf(repayTarget) : 0;
+  const repayValid =
+    repayResult !== null && repayResult > 0 && repayResult <= repayMax + 0.001;
+
+  const handleRepayKey = (key: string) => {
+    setRepayExpr((prev) => {
+      if (key === "backspace") return prev.slice(0, -1);
+      if (key === ",") {
+        if (prev.includes(",")) return prev;
+        return (prev || "0") + ",";
+      }
+      if (prev.length >= 10) return prev;
+      return prev + key;
+    });
+  };
+
+  const submitRepay = () => {
+    if (!repayTarget || !repayValid || repayResult === null) return;
+    repayDebt(repayTarget.id, repayResult);
+    setRepayTarget(null);
+    setRepayExpr("");
+  };
 
   const result = useMemo(() => evaluateExpression(expr), [expr]);
   const canAdd = Boolean(name.trim()) && result !== null && result > 0;
@@ -46,8 +85,13 @@ export function DebtsScreen({ onClose }: { onClose: () => void }) {
     [debts]
   );
 
-  const iOweTotal = open.filter((d) => d.direction === "i_owe").reduce((s, d) => s + d.amount, 0);
-  const owedTotal = open.filter((d) => d.direction === "owed_to_me").reduce((s, d) => s + d.amount, 0);
+  // Суммы по остаткам, а не по исходным суммам долга
+  const iOweTotal = open
+    .filter((d) => d.direction === "i_owe")
+    .reduce((s, d) => s + getDebtRemaining(d, transactions), 0);
+  const owedTotal = open
+    .filter((d) => d.direction === "owed_to_me")
+    .reduce((s, d) => s + getDebtRemaining(d, transactions), 0);
 
   /** Открыть калькулятор, предварительно убрав системную клавиатуру */
   const showPad = () => {
@@ -173,20 +217,51 @@ export function DebtsScreen({ onClose }: { onClose: () => void }) {
                         {formatDateShort(d.createdAt)}
                       </p>
                     </div>
-                    <p
-                      className={`font-display text-[15px] font-semibold tabular-nums ${
-                        d.direction === "owed_to_me" ? "text-income" : "text-expense"
-                      }`}
-                    >
-                      {formatMoney(d.amount)}
+                    <p className="text-right">
+                      <span
+                        className={`block font-display text-[15px] font-semibold tabular-nums ${
+                          d.direction === "owed_to_me" ? "text-income" : "text-expense"
+                        }`}
+                      >
+                        {formatMoney(remainingOf(d))}
+                      </span>
+                      {repaidOf(d) > 0 && (
+                        <span className="block text-[11px] font-medium text-muted tabular-nums">
+                          из {formatMoney(d.amount)}
+                        </span>
+                      )}
                     </p>
                   </div>
+
+                  {/* прогресс частичного погашения */}
+                  {repaidOf(d) > 0 && (
+                    <div className="mt-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-surface2">
+                        <div
+                          className="h-full rounded-full bg-income transition-all duration-500"
+                          style={{ width: `${Math.round((repaidOf(d) / d.amount) * 100)}%` }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[11px] font-medium text-muted tabular-nums">
+                        Возвращено {formatMoney(repaidOf(d))} ·{" "}
+                        {Math.round((repaidOf(d) / d.amount) * 100)}%
+                      </p>
+                    </div>
+                  )}
+
                   {d.comment ? (
                     <p className="mt-2 rounded-xl bg-surface2/60 px-3 py-2 text-xs font-medium text-muted">
                       {d.comment}
                     </p>
                   ) : null}
                   <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => openRepay(d)}
+                      className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface2 text-[13px] font-bold text-ink"
+                    >
+                      <Coins size={15} strokeWidth={2.6} />
+                      Вернули часть
+                    </button>
                     <button
                       onClick={() => toggleDebtPaid(d.id)}
                       className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-income-soft text-[13px] font-bold text-income"
@@ -314,6 +389,76 @@ export function DebtsScreen({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+
+      {/* частичное погашение */}
+      <Sheet open={repayTarget !== null} onClose={() => setRepayTarget(null)}>
+        {repayTarget && (
+          <div className="animate-pop">
+            <div className="text-center">
+              <h3 className="font-display text-[16px] font-semibold">
+                {repayTarget.direction === "owed_to_me" ? "Вернули часть" : "Отдали часть"}
+              </h3>
+              <p className="mt-1 text-xs font-medium text-muted">
+                {repayTarget.personName} · осталось{" "}
+                <span className="tabular-nums">{formatMoney(repayMax)}</span>
+              </p>
+            </div>
+
+            <p
+              className={`mt-4 text-center font-display text-[34px] leading-none font-semibold tabular-nums ${
+                repayExpr ? "text-ink" : "text-muted/40"
+              }`}
+            >
+              {repayExpr || "0"}
+              <span className="ml-1.5 text-[20px] text-muted">₽</span>
+            </p>
+
+            {repayResult !== null && repayResult > repayMax + 0.001 && (
+              <p className="mt-2 text-center text-xs font-bold text-expense">
+                Больше остатка по долгу
+              </p>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              {[0.5, 1].map((part) => {
+                const value = Math.round(repayMax * part * 100) / 100;
+                return (
+                  <button
+                    key={part}
+                    onClick={() => setRepayExpr(String(value).replace(".", ","))}
+                    className="press h-10 flex-1 rounded-xl bg-surface2 text-[13px] font-bold text-muted"
+                  >
+                    {part === 1 ? "Весь остаток" : "Половина"}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3">
+              <NumberPad onKey={handleRepayKey} withOperators={false} />
+            </div>
+
+            <div className="mt-3 grid gap-2">
+              <button
+                onClick={submitRepay}
+                disabled={!repayValid}
+                className={`press flex h-13 items-center justify-center gap-2 rounded-2xl text-[15px] font-bold ${
+                  repayValid ? "glow-accent bg-accent text-on-accent" : "bg-surface2 text-muted"
+                }`}
+              >
+                <Check size={17} strokeWidth={3} />
+                Записать возврат
+              </button>
+              <button
+                onClick={() => setRepayTarget(null)}
+                className="press flex h-12 items-center justify-center rounded-2xl text-[15px] font-bold text-muted"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       {/* форма нового долга */}
       {adding && (

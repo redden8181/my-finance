@@ -14,7 +14,12 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useAppStore } from "../store/StoreContext";
-import { getBalanceSeries, getCarryover, getMonthStats } from "../store/useStore";
+import {
+  getBalanceSeries,
+  getCarryover,
+  getDebtRemaining,
+  getMonthStats,
+} from "../store/useStore";
 import type { Transaction } from "../types";
 import { formatDayLabel, formatMoney, toISODate } from "../utils/format";
 import { PlannedCard } from "./PlannedCard";
@@ -48,12 +53,15 @@ export function HomeScreen({
 
   const debtSummary = useMemo(() => {
     const active = debts.filter((d) => !d.isPaid);
-    const iOwe = active.filter((d) => d.direction === "i_owe").reduce((s, d) => s + d.amount, 0);
+    // Учитываем частичные возвраты — показываем остаток
+    const iOwe = active
+      .filter((d) => d.direction === "i_owe")
+      .reduce((s, d) => s + getDebtRemaining(d, transactions), 0);
     const owedToMe = active
       .filter((d) => d.direction === "owed_to_me")
-      .reduce((s, d) => s + d.amount, 0);
+      .reduce((s, d) => s + getDebtRemaining(d, transactions), 0);
     return { count: active.length, iOwe, owedToMe };
-  }, [debts]);
+  }, [debts, transactions]);
 
   const grouped = useMemo(() => {
     const sorted = [...transactions].sort(

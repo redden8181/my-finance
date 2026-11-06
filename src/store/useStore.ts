@@ -219,6 +219,19 @@ export function computeReminders(transactions: Transaction[]): Reminder[] {
   return result.sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
+/** Сколько уже возвращено по долгу — считаем по связанным транзакциям */
+export function getDebtRepaid(debtId: string, transactions: Transaction[]): number {
+  return transactions
+    .filter((t) => t.debtId === debtId && t.debtKind === "repay")
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+
+/** Остаток по долгу с учётом частичных погашений */
+export function getDebtRemaining(debt: Debt, transactions: Transaction[]): number {
+  const remaining = debt.amount - getDebtRepaid(debt.id, transactions);
+  return Math.max(0, Math.round(remaining * 100) / 100);
+}
+
 export interface PlannedView {
   item: PlannedExpense;
   dueDate: Date;
@@ -552,25 +565,34 @@ export function useStore() {
       if (!debt) return prev;
       if (!debt.isPaid) {
         const now = new Date().toISOString();
-        const tx: Transaction = {
-          id: uuid(),
-          type: debt.direction === "owed_to_me" ? "income" : "expense",
-          amount: debt.amount,
-          categoryId: DEBT_CATEGORY_ID,
-          comment:
-            debt.direction === "owed_to_me"
-              ? `Вернули долг: ${debt.personName}`
-              : `Вернул долг: ${debt.personName}`,
-          date: now,
-          flag: "mandatory",
-          createdAt: now,
-          debtId: id,
-          debtKind: "repay",
-        };
+        // Закрываем только остаток — частично возвращённое не задваивается
+        const remaining = getDebtRemaining(debt, prev.transactions);
+        const nextTransactions =
+          remaining > 0
+            ? [
+                ...prev.transactions,
+                {
+                  id: uuid(),
+                  type: debt.direction === "owed_to_me" ? "income" : "expense",
+                  amount: remaining,
+                  categoryId: DEBT_CATEGORY_ID,
+                  comment:
+                    debt.direction === "owed_to_me"
+                      ? `Вернули долг: ${debt.personName}`
+                      : `Вернул долг: ${debt.personName}`,
+                  date: now,
+                  flag: "mandatory",
+                  createdAt: now,
+                  debtId: id,
+                  debtKind: "repay",
+                } as Transaction,
+              ]
+            : prev.transactions;
+
         return {
           ...prev,
           debts: prev.debts.map((d) => (d.id === id ? { ...d, isPaid: true, paidAt: now } : d)),
-          transactions: [...prev.transactions, tx],
+          transactions: nextTransactions,
         };
       }
       return {
@@ -581,6 +603,49 @@ export function useStore() {
         transactions: prev.transactions.filter(
           (t) => !(t.debtId === id && t.debtKind === "repay")
         ),
+      };
+    });
+  }, []);
+
+  /**
+   * Частичное (или полное) погашение долга.
+   * Создаёт транзакцию на сумму платежа; когда возвращено всё —
+   * долг автоматически помечается закрытым.
+   */
+  const repayDebt = useCallback((id: string, amount: number) => {
+    setData((prev) => {
+      const debt = prev.debts.find((d) => d.id === id);
+      if (!debt || amount <= 0) return prev;
+
+      const remaining = getDebtRemaining(debt, prev.transactions);
+      const payment = Math.min(Math.round(amount * 100) / 100, remaining);
+      if (payment <= 0) return prev;
+
+      const now = new Date().toISOString();
+      const isFull = payment >= remaining;
+
+      const tx: Transaction = {
+        id: uuid(),
+        type: debt.direction === "owed_to_me" ? "income" : "expense",
+        amount: payment,
+        categoryId: DEBT_CATEGORY_ID,
+        comment:
+          debt.direction === "owed_to_me"
+            ? `${isFull ? "Вернули долг" : "Частичный возврат"}: ${debt.personName}`
+            : `${isFull ? "Вернул долг" : "Частичная оплата"}: ${debt.personName}`,
+        date: now,
+        flag: "mandatory",
+        createdAt: now,
+        debtId: id,
+        debtKind: "repay",
+      };
+
+      return {
+        ...prev,
+        debts: prev.debts.map((d) =>
+          d.id === id && isFull ? { ...d, isPaid: true, paidAt: now } : d
+        ),
+        transactions: [...prev.transactions, tx],
       };
     });
   }, []);
@@ -692,6 +757,7 @@ export function useStore() {
     getCategoriesByType,
     addDebt,
     toggleDebtPaid,
+    repayDebt,
     deleteDebt,
     setTheme,
     closeCurrentMonth,
